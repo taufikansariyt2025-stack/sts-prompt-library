@@ -1,26 +1,362 @@
 @import "tailwindcss";
 
+/* next-themes writes `class="dark"` on <html>, so the `dark:` variant must
+   follow the class, not the OS media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Design tokens — Blue / White / Black
+   Dark-first, engineered look. OKLCH throughout so lightness ramps evenly and
+   the accent keeps contrast when it moves between themes.
+   ========================================================================== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --bg: oklch(0.994 0.002 250);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.972 0.005 250);
+  --surface-3: oklch(0.944 0.008 250);
+  --border: oklch(0.903 0.008 250);
+  --border-strong: oklch(0.822 0.012 250);
+
+  /* Foreground */
+  --fg: oklch(0.172 0.021 250);
+  --fg-muted: oklch(0.482 0.021 250);
+  --fg-subtle: oklch(0.624 0.017 250);
+
+  /* Accent — electric blue */
+  --accent: oklch(0.523 0.222 258);
+  --accent-hover: oklch(0.452 0.232 258);
+  --accent-fg: oklch(0.995 0 0);
+  --accent-soft: oklch(0.948 0.042 258);
+  --accent-ring: oklch(0.523 0.222 258 / 0.35);
+
+  /* Content-type badges — kept inside the blue family */
+  --video: oklch(0.548 0.208 268);
+  --image: oklch(0.568 0.152 218);
+
+  /* Status */
+  --success: oklch(0.552 0.148 158);
+  --warning: oklch(0.652 0.152 72);
+  --danger: oklch(0.558 0.218 25);
+
+  /* Effects */
+  --overlay: oklch(0.172 0.021 250 / 0.5);
+  --shadow-color: 250 30% 22%;
+  --media-ring: oklch(0.172 0.021 250 / 0.06);
+  --grid-line: oklch(0.172 0.021 250 / 0.05);
+  --glow: oklch(0.523 0.222 258 / 0.18);
+
+  color-scheme: light;
 }
+
+.dark {
+  /* Near-black with a blue undertone. Never pure #000 — it smears on OLED
+     and makes every border and glow impossible to place. */
+  --bg: oklch(0.118 0.014 258);
+  --surface: oklch(0.152 0.016 258);
+  --surface-2: oklch(0.186 0.018 258);
+  --surface-3: oklch(0.228 0.021 258);
+  --border: oklch(0.262 0.022 258);
+  --border-strong: oklch(0.342 0.028 258);
+
+  --fg: oklch(0.972 0.004 258);
+  --fg-muted: oklch(0.712 0.017 258);
+  --fg-subtle: oklch(0.552 0.019 258);
+
+  /* Lightness is raised so the accent holds AA contrast on a dark surface. */
+  --accent: oklch(0.672 0.192 258);
+  --accent-hover: oklch(0.742 0.176 258);
+  --accent-fg: oklch(0.118 0.014 258);
+  --accent-soft: oklch(0.268 0.088 258);
+  --accent-ring: oklch(0.672 0.192 258 / 0.4);
+
+  --video: oklch(0.702 0.178 268);
+  --image: oklch(0.742 0.132 218);
+
+  --success: oklch(0.722 0.152 158);
+  --warning: oklch(0.792 0.152 72);
+  --danger: oklch(0.688 0.192 25);
+
+  --overlay: oklch(0.072 0.01 258 / 0.72);
+  --shadow-color: 258 60% 2%;
+  /* Light-edged media would otherwise bleed into a dark page. */
+  --media-ring: oklch(1 0 0 / 0.07);
+  --grid-line: oklch(1 0 0 / 0.035);
+  --glow: oklch(0.672 0.192 258 / 0.22);
+
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   Tailwind theme mapping
+   ========================================================================== */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-video: var(--video);
+  --color-image: var(--image);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --color-overlay: var(--overlay);
+
+  /* Geometric sans + true monospace. No serif anywhere — this is a technical
+     product and a display serif would fight that. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 26px;
+
+  --ease-out-quint: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --shadow-e1: 0 1px 2px 0 hsl(var(--shadow-color) / 0.08);
+  --shadow-e2:
+    0 2px 6px -1px hsl(var(--shadow-color) / 0.12),
+    0 1px 2px -1px hsl(var(--shadow-color) / 0.08);
+  --shadow-e3:
+    0 10px 24px -6px hsl(var(--shadow-color) / 0.18),
+    0 2px 6px -2px hsl(var(--shadow-color) / 0.1);
+  --shadow-e4:
+    0 24px 48px -12px hsl(var(--shadow-color) / 0.26),
+    0 6px 12px -6px hsl(var(--shadow-color) / 0.14);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Slab of ambient blue light behind the page, top-centre. */
+    background-image: radial-gradient(
+      120rem 45rem at 50% -18rem,
+      var(--glow),
+      transparent 62%
+    );
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.028em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Numbers should never jitter as they change. */
+  [data-numeric],
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid var(--bg);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+@utility container-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 1400px;
+  padding-inline: 1rem;
+
+  @media (width >= 768px) {
+    padding-inline: 1.75rem;
+  }
+  @media (width >= 1280px) {
+    padding-inline: 2.5rem;
+  }
+}
+
+/* Engineering-drawing grid, faded out at the edges. */
+@utility grid-bg {
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(70% 55% at 50% 32%, black, transparent 100%);
+    pointer-events: none;
+  }
+}
+
+@utility media-frame {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--media-ring);
+}
+
+/* Prompt bodies carry meaningful whitespace — timestamps, shot lists, sections. */
+@utility prompt-text {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-variant-ligatures: none;
+  tab-size: 2;
+}
+
+/* Small uppercase technical label. Used for section headers and meta keys. */
+@utility eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* Accent halo for primary actions and active states. */
+@utility glow-accent {
+  box-shadow:
+    0 0 0 1px var(--accent-ring),
+    0 8px 32px -8px var(--accent-ring);
+}
+
+/* Hairline gradient edge that reads as "lit from above". */
+@utility edge-top {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border-strong),
+      transparent
+    );
+    pointer-events: none;
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility rail-mask {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 16px,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+@keyframes sts-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility fade-up {
+  animation: sts-fade-up 0.5s var(--ease-out-quint) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,3 +1,6 @@
 allowBuilds:
-  sharp: false
-  unrs-resolver: false
+  '@firebase/util': true
+  protobufjs: true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true

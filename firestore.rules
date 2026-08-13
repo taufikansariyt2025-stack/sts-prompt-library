@@ -1,0 +1,71 @@
+rules_version = '2';
+
+/**
+ * STS Prompt Library — Firestore security rules.
+ *
+ * Posture: the public may read published content and nothing else. NO client
+ * may write to ANY collection, ever.
+ *
+ * `allow write: if false` everywhere is deliberate, not an oversight. The
+ * Firebase Admin SDK bypasses these rules entirely, so legitimate admin writes
+ * still work through server route handlers — where Zod validation, the audit
+ * log, search-index rebuilds and cache revalidation all run. Allowing direct
+ * client writes (even for an authenticated admin) would bypass every one of
+ * those. See CLAUDE.md rule #1.
+ *
+ * Tested in tests/rules/. Any change here requires a test.
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Published prompts are world-readable. Drafts are invisible to clients.
+    match /prompts/{promptId} {
+      allow get, list: if resource.data.status == 'published';
+      allow write: if false;
+    }
+
+    // Visible categories only.
+    match /categories/{categoryId} {
+      allow get, list: if resource.data.isVisible == true;
+      allow write: if false;
+    }
+
+    // Tags are a public vocabulary used to render filter chips.
+    match /tags/{tagId} {
+      allow get, list: if true;
+      allow write: if false;
+    }
+
+    // Branding and copy are public by nature (logo, site name, hero text).
+    match /settings/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Internal registries — never exposed to a browser.
+    match /media/{mediaId} {
+      allow read, write: if false;
+    }
+
+    match /auditLog/{entryId} {
+      allow read, write: if false;
+    }
+
+    // Access requests and roles. Entirely server-managed — a client being able
+    // to write here would let anyone approve themselves.
+    match /users/{uid} {
+      allow read, write: if false;
+    }
+
+    match /metrics/{docId} {
+      allow read, write: if false;
+    }
+
+    // Default deny.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
