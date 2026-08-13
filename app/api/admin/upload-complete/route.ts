@@ -5,6 +5,7 @@ import { guardAdmin } from "@/lib/api/guard";
 import { badRequest, ok, parseBody, serverError } from "@/lib/api/respond";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/queries";
+import { isR2Configured } from "@/lib/env";
 import { r2PublicUrl, verifyUploaded } from "@/lib/r2/presign";
 import { MAX_PREVIEW_BYTES, uploadCompleteSchema } from "@/lib/schemas/media";
 
@@ -20,6 +21,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const guard = await guardAdmin(request, "uploadUrl");
   if (!guard.ok) return guard.response;
+
+  if (!isR2Configured()) {
+    return badRequest("Image storage isn't configured yet.");
+  }
 
   const parsed = await parseBody(request, uploadCompleteSchema);
   if (!parsed.ok) return parsed.response;

@@ -1,5 +1,6 @@
 import { guardAdmin } from "@/lib/api/guard";
 import { badRequest, ok, parseBody, serverError } from "@/lib/api/respond";
+import { isR2Configured } from "@/lib/env";
 import { buildObjectKey, presignUpload, r2PublicUrl } from "@/lib/r2/presign";
 import {
   ALLOWED_IMAGE_MIME,
@@ -22,6 +23,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const guard = await guardAdmin(request, "uploadUrl");
   if (!guard.ok) return guard.response;
+
+  // Storage is optional to run the app — say so plainly instead of throwing.
+  if (!isR2Configured()) {
+    return badRequest(
+      "Image storage isn't configured yet. Add the R2_* variables, or use a YouTube link for now.",
+    );
+  }
 
   const parsed = await parseBody(request, uploadRequestSchema);
   if (!parsed.ok) return parsed.response;

@@ -2,7 +2,7 @@ import "server-only";
 
 import { S3Client } from "@aws-sdk/client-s3";
 
-import { serverEnv } from "@/lib/env";
+import { r2Env } from "@/lib/env";
 
 /**
  * Cloudflare R2 is S3-compatible, so the AWS SDK talks to it directly.
@@ -14,7 +14,7 @@ let cached: S3Client | null = null;
 export function r2(): S3Client {
   if (cached) return cached;
 
-  const env = serverEnv();
+  const env = r2Env();
   cached = new S3Client({
     region: "auto",
     endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -27,10 +27,10 @@ export function r2(): S3Client {
 }
 
 export function r2Bucket(): string {
-  return serverEnv().R2_BUCKET_NAME;
+  return r2Env().R2_BUCKET_NAME;
 }
 
 /** Public CDN URL for an object key. The bucket itself is never public. */
 export function r2PublicUrl(key: string): string {
-  return `${serverEnv().R2_PUBLIC_URL.replace(/\/$/, "")}/${key}`;
+  return `${r2Env().R2_PUBLIC_URL.replace(/\/$/, "")}/${key}`;
 }

@@ -1,14 +1,16 @@
 import { z } from "zod";
 
 /**
- * Environment validation.
+ * Environment validation, split by concern.
  *
- * Split in two because the client bundle can only ever see `NEXT_PUBLIC_*`.
- * Server variables are validated lazily so importing this module from a Client
- * Component can never throw — and can never leak a secret into the bundle.
+ * Client vars are validated eagerly — they're inlined at build time, so a
+ * missing one should fail the build loudly.
  *
- * Both schemas fail fast with a readable message, which beats a 500 three
- * screens deep in a request.
+ * Server vars are validated LAZILY AND PER FEATURE. That split matters: a
+ * single monolithic server schema meant that asking "who are the admins?"
+ * also demanded the Cloudflare R2 credentials, so signing in returned a 500 on
+ * any deploy where image storage wasn't configured yet. Each feature should
+ * only be able to break itself.
  */
 
 const clientSchema = z.object({
@@ -20,25 +22,6 @@ const clientSchema = z.object({
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: z.string().min(1),
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: z.string().min(1),
   NEXT_PUBLIC_FIREBASE_APP_ID: z.string().min(1),
-});
-
-const serverSchema = z.object({
-  // Credentials are resolved by lib/firebase/credentials.ts, which accepts
-  // several formats and raises a far more actionable error than a Zod issue.
-  FIREBASE_SERVICE_ACCOUNT_KEY: z.string().optional(),
-  FIREBASE_PROJECT_ID: z.string().optional(),
-  FIREBASE_CLIENT_EMAIL: z.string().optional(),
-  FIREBASE_PRIVATE_KEY: z.string().optional(),
-  R2_ACCOUNT_ID: z.string().min(1),
-  R2_ACCESS_KEY_ID: z.string().min(1),
-  R2_SECRET_ACCESS_KEY: z.string().min(1),
-  R2_BUCKET_NAME: z.string().min(1),
-  R2_PUBLIC_URL: z.url(),
-  /** Comma-separated emails allowed to hold the admin claim. */
-  ADMIN_EMAILS: z.string().min(3),
-  UPSTASH_REDIS_REST_URL: z.url().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
-  REVALIDATE_SECRET: z.string().min(16).optional(),
 });
 
 function format(error: z.ZodError, scope: string): never {
@@ -57,7 +40,8 @@ const rawClient = {
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   NEXT_PUBLIC_FIREBASE_APP_ID: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
@@ -66,26 +50,67 @@ if (!parsedClient.success) format(parsedClient.error, "client");
 
 export const clientEnv = parsedClient.data;
 
-let cachedServerEnv: z.infer<typeof serverSchema> | null = null;
-
-/** Server-only. Throws if called from the browser. */
-export function serverEnv() {
+function assertServer(): void {
   if (typeof window !== "undefined") {
-    throw new Error("serverEnv() must never be called from the browser.");
+    throw new Error("Server environment must never be read from the browser.");
   }
-  if (cachedServerEnv) return cachedServerEnv;
-
-  const parsed = serverSchema.safeParse(process.env);
-  if (!parsed.success) format(parsed.error, "server");
-
-  cachedServerEnv = parsed.data;
-  return cachedServerEnv;
 }
 
-/** Emails permitted to hold the admin custom claim. */
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Emails permitted to hold the owner role.
+ *
+ * Deliberately tolerant: an empty or missing value yields an empty list rather
+ * than throwing. Nobody gets auto-promoted, existing approved accounts keep
+ * working, and — critically — sign-in still functions so an owner can be
+ * granted access with `pnpm set:admin`.
+ */
 export function adminEmails(): string[] {
-  return serverEnv()
-    .ADMIN_EMAILS.split(",")
+  assertServer();
+  return (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+}
+
+// ── Cloudflare R2 ────────────────────────────────────────────────────────────
+
+const r2Schema = z.object({
+  R2_ACCOUNT_ID: z.string().min(1),
+  R2_ACCESS_KEY_ID: z.string().min(1),
+  R2_SECRET_ACCESS_KEY: z.string().min(1),
+  R2_BUCKET_NAME: z.string().min(1),
+  R2_PUBLIC_URL: z.url(),
+});
+
+let cachedR2: z.infer<typeof r2Schema> | null = null;
+
+/** Throws only when something actually tries to use storage. */
+export function r2Env() {
+  assertServer();
+  if (cachedR2) return cachedR2;
+
+  const parsed = r2Schema.safeParse(process.env);
+  if (!parsed.success) format(parsed.error, "Cloudflare R2");
+
+  cachedR2 = parsed.data;
+  return cachedR2;
+}
+
+/** Lets callers show "storage isn't set up" instead of a 500. */
+export function isR2Configured(): boolean {
+  if (typeof window !== "undefined") return false;
+  return r2Schema.safeParse(process.env).success;
+}
+
+// ── Optional extras ──────────────────────────────────────────────────────────
+
+export function optionalEnv() {
+  assertServer();
+  return {
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL || undefined,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN || undefined,
+    REVALIDATE_SECRET: process.env.REVALIDATE_SECRET || undefined,
+  };
 }
