@@ -27,7 +27,20 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },
-  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  /*
+   * `same-origin-allow-popups`, not `same-origin`.
+   *
+   * Firebase's signInWithPopup opens a window at accounts.google.com and relies
+   * on that popup posting the credential back through `window.opener`. Strict
+   * `same-origin` severs that reference, so the popup completes at Google and
+   * the result never reaches the app — sign-in hangs and no account is ever
+   * created, with no error in the console to explain it.
+   *
+   * The relaxed value keeps the protection that matters here (a cross-origin
+   * page still can't get a handle on our window) while letting popups WE open
+   * talk back to us.
+   */
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
 ];
 
 const nextConfig: NextConfig = {

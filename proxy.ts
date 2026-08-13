@@ -73,8 +73,9 @@ function buildCsp(scriptSrc: string): string {
   const authOrigin = firebaseAuthOrigin();
   return [
     `default-src 'self'`,
-    // apis.google.com is required by the Firebase Auth popup/redirect resolver.
-    `script-src ${scriptSrc} https://apis.google.com`,
+    // apis.google.com: Firebase Auth popup/redirect resolver.
+    // cloudflareinsights: the Web Analytics beacon Cloudflare injects at the edge.
+    `script-src ${scriptSrc} https://apis.google.com https://static.cloudflareinsights.com`,
     // Tailwind injects styles at runtime; inline styles are unavoidable and
     // far lower risk than inline scripts.
     `style-src 'self' 'unsafe-inline'`,
@@ -82,7 +83,7 @@ function buildCsp(scriptSrc: string): string {
     `media-src 'self' ${cdn}`,
     `font-src 'self' data:`,
     `frame-src 'self' ${authOrigin} https://accounts.google.com https://apis.google.com https://www.youtube-nocookie.com https://www.youtube.com`,
-    `connect-src 'self' ${cdn} ${authOrigin} https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com${
+    `connect-src 'self' ${cdn} ${authOrigin} https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cloudflareinsights.com${
       isDev ? " ws: http://localhost:*" : ""
     }`,
     `worker-src 'self' blob:`,
