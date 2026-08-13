@@ -18,7 +18,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
-import type { AccessStatus, AppUser, UserRole } from "@/lib/schemas/user";
+import {
+  DEFAULT_APPROVED_ROLE,
+  ROLE_COPY,
+  type AccessStatus,
+  type AppUser,
+  type UserRole,
+} from "@/lib/schemas/user";
 import { cn } from "@/lib/utils/cn";
 
 const STATUS_STYLE: Record<AccessStatus, { label: string; className: string }> = {
@@ -110,8 +116,9 @@ export function UsersClient({ initialUsers }: { initialUsers: AppUser[] }) {
                       </Button>
                       <Button
                         size="sm"
+                        title="Grants library access. Promote to Editor or Admin afterwards if they also need the panel."
                         disabled={busyUid === user.uid}
-                        onClick={() => decide(user.uid, "approved", "editor")}
+                        onClick={() => decide(user.uid, "approved", DEFAULT_APPROVED_ROLE)}
                       >
                         {busyUid === user.uid ? (
                           <Loader2 className="animate-spin" />
@@ -164,13 +171,15 @@ export function UsersClient({ initialUsers }: { initialUsers: AppUser[] }) {
                       <>
                         <Select
                           aria-label={`Role for ${user.email}`}
+                          title={ROLE_COPY[user.role]}
                           value={user.role}
                           disabled={busyUid === user.uid || user.status !== "approved"}
                           onChange={(e) =>
                             decide(user.uid, "approved", e.target.value as UserRole)
                           }
-                          className="h-8 w-28 text-xs"
+                          className="h-8 w-32 text-xs"
                         >
+                          <option value="member">Member</option>
                           <option value="editor">Editor</option>
                           <option value="admin">Admin</option>
                         </Select>

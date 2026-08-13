@@ -4,15 +4,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { MasonryGrid } from "@/components/prompt/masonry-grid";
-import { getCategoryBySlug, listCategories, listPrompts } from "@/lib/firebase/queries";
+import { getCategoryBySlug, listPrompts } from "@/lib/firebase/queries";
 import { safeQuery } from "@/lib/firebase/safe";
-
-export const revalidate = 3600;
-
-export async function generateStaticParams() {
-  const categories = await safeQuery(() => listCategories(), []);
-  return categories.map((category) => ({ slug: category.slug }));
-}
 
 export async function generateMetadata({
   params,

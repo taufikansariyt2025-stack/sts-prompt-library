@@ -1,8 +1,10 @@
-import { Search } from "lucide-react";
+import { LogOut, Search } from "lucide-react";
 import Link from "next/link";
 import NextImage from "next/image";
 
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import type { Session } from "@/lib/auth/session";
+import { canAccessPanel } from "@/lib/schemas/user";
 import type { SiteSettings } from "@/lib/schemas/settings";
 import { cn } from "@/lib/utils/cn";
 
@@ -12,7 +14,13 @@ const NAV = [
   { href: "/saved", label: "Saved" },
 ] as const;
 
-export function SiteHeader({ settings }: { settings: SiteSettings }) {
+export function SiteHeader({
+  settings,
+  session,
+}: {
+  settings: SiteSettings;
+  session: Session;
+}) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-bg/70 backdrop-blur-xl">
       <div className="container-page flex h-14 items-center gap-2 md:h-16 md:gap-6">
@@ -55,6 +63,7 @@ export function SiteHeader({ settings }: { settings: SiteSettings }) {
           </Link>
 
           <ThemeToggle />
+          <AccountMenu session={session} />
         </div>
       </div>
     </header>
@@ -116,5 +125,46 @@ function Logo({ settings }: { settings: SiteSettings }) {
         </>
       )}
     </Link>
+  );
+}
+
+/**
+ * Account control.
+ *
+ * The panel link only renders for roles that can actually reach /admin —
+ * showing a member a link that bounces them is worse than not showing it.
+ * The link is a convenience, not the guard: `requireAdmin()` enforces it.
+ */
+function AccountMenu({ session }: { session: Session }) {
+  const initial = (session.name || session.email || "?").charAt(0).toUpperCase();
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {canAccessPanel(session.role) ? (
+        <Link
+          href="/admin"
+          className="hidden rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-accent/45 hover:text-fg sm:block"
+        >
+          Admin
+        </Link>
+      ) : null}
+
+      <span
+        title={session.email}
+        className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface-2 text-xs font-semibold text-fg-muted"
+      >
+        {initial}
+      </span>
+
+      <form action="/api/auth/signout" method="post">
+        <button
+          type="submit"
+          aria-label="Sign out"
+          className="grid size-9 place-items-center rounded-lg text-fg-subtle transition-colors hover:text-danger"
+        >
+          <LogOut className="size-4" />
+        </button>
+      </form>
+    </div>
   );
 }

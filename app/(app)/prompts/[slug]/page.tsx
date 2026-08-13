@@ -10,19 +10,10 @@ import { PromptTextBlock } from "@/components/prompt/prompt-text-block";
 import { MetaChip, TypeBadge } from "@/components/prompt/type-badge";
 import {
   getPromptBySlug,
-  listPublishedSlugs,
   listRelatedPrompts,
 } from "@/lib/firebase/queries";
 import { safeQuery } from "@/lib/firebase/safe";
 import type { Prompt } from "@/lib/schemas/prompt";
-
-export const revalidate = 3600;
-
-/** Pre-builds every published slug so a visit never triggers a database read. */
-export async function generateStaticParams() {
-  const slugs = await safeQuery(() => listPublishedSlugs(), []);
-  return slugs.map((slug) => ({ slug }));
-}
 
 export async function generateMetadata({
   params,

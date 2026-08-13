@@ -5,7 +5,13 @@ import type { DecodedIdToken } from "firebase-admin/auth";
 
 import { adminEmails } from "@/lib/env";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
-import type { AccessStatus, AppUser, UserRole } from "@/lib/schemas/user";
+import {
+  canAccessPanel,
+  DEFAULT_APPROVED_ROLE,
+  type AccessStatus,
+  type AppUser,
+  type UserRole,
+} from "@/lib/schemas/user";
 
 /**
  * Access requests for the admin panel.
@@ -39,7 +45,7 @@ function toAppUser(uid: string, data: FirebaseFirestore.DocumentData): AppUser {
     emailVerified: Boolean(data.emailVerified),
     provider: (data.provider as string) ?? "password",
     status: (data.status as AccessStatus) ?? "pending",
-    role: (data.role as UserRole) ?? "editor",
+    role: (data.role as UserRole) ?? DEFAULT_APPROVED_ROLE,
     requestedAt: toIso(data.requestedAt) ?? new Date(0).toISOString(),
     decidedAt: toIso(data.decidedAt),
     decidedByEmail: (data.decidedByEmail as string) ?? null,
@@ -78,7 +84,7 @@ export async function resolveAccess(decoded: DecodedIdToken): Promise<AppUser> {
       ...identity,
       // Owners bootstrap themselves; everyone else waits for a decision.
       status: owner ? "approved" : "pending",
-      role: owner ? "owner" : "editor",
+      role: owner ? "owner" : DEFAULT_APPROVED_ROLE,
       requestedAt: FieldValue.serverTimestamp(),
       decidedAt: owner ? FieldValue.serverTimestamp() : null,
       decidedByEmail: owner ? "system (ADMIN_EMAILS)" : null,
@@ -116,11 +122,22 @@ export async function resolveAccess(decoded: DecodedIdToken): Promise<AppUser> {
   return existing;
 }
 
-/** Mirrors the stored role onto the Firebase custom claims. */
+/**
+ * Mirrors the stored role onto the Firebase custom claims.
+ *
+ * Two separate flags because the library and the admin panel are different
+ * boundaries: every approved role may browse, but only owner/admin/editor may
+ * reach /admin. Keeping both on the token means neither check needs a
+ * Firestore read on the request path.
+ *
+ * `role: null` clears access entirely (rejected or suspended).
+ */
 async function syncClaims(uid: string, role: UserRole | null): Promise<void> {
   await adminAuth().setCustomUserClaims(
     uid,
-    role ? { admin: true, role } : { admin: false, role: null },
+    role
+      ? { approved: true, admin: canAccessPanel(role), role }
+      : { approved: false, admin: false, role: null },
   );
 }
 

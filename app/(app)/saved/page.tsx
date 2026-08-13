@@ -4,8 +4,6 @@ import { SavedClient } from "@/components/prompt/saved-client";
 import { listPrompts } from "@/lib/firebase/queries";
 import { safeQuery } from "@/lib/firebase/safe";
 
-export const revalidate = 3600;
-
 export const metadata: Metadata = {
   title: "Saved",
   description: "Prompts you've saved on this device.",

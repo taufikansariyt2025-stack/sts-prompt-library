@@ -1,19 +1,18 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
 
 import { clientEnv } from "@/lib/env";
 
 /**
  * Browser Firebase app.
  *
- * Used for two things only:
- *  1. Admin sign-in (Firebase Auth), which then exchanges an ID token for a
- *     server-set session cookie — see lib/auth/.
- *  2. Read-only Firestore access, guarded by security rules.
+ * Used for ONE thing: authentication. The browser signs in, gets an ID token,
+ * and exchanges it for a server-set HttpOnly session cookie (see lib/auth/).
  *
- * Client writes are denied by the rules for every collection. All mutations go
- * through server route handlers using the Admin SDK. See CLAUDE.md rule #1.
+ * It deliberately does NOT export a Firestore handle. `firestore.rules` denies
+ * every client read and write, because the library is gated — all data access
+ * runs server-side through the Admin SDK after the session has been verified.
+ * Adding a client Firestore read here would silently bypass that gate.
  */
 
 const config = {
@@ -31,8 +30,4 @@ export function firebaseApp(): FirebaseApp {
 
 export function firebaseAuth(): Auth {
   return getAuth(firebaseApp());
-}
-
-export function firebaseDb(): Firestore {
-  return getFirestore(firebaseApp());
 }

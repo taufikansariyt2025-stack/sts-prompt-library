@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   ACCESS_STATUSES,
   accessDecisionSchema,
+  canAccessPanel,
   canEditSettings,
   canManageUsers,
+  canViewLibrary,
+  DEFAULT_APPROVED_ROLE,
   USER_ROLES,
   type UserRole,
 } from "@/lib/schemas/user";
@@ -29,11 +32,47 @@ describe("canManageUsers", () => {
   });
 });
 
+describe("canViewLibrary", () => {
+  it("allows every approved role — the library is the baseline grant", () => {
+    for (const role of USER_ROLES) expect(canViewLibrary(role)).toBe(true);
+  });
+});
+
+describe("canAccessPanel", () => {
+  it("keeps members out of /admin while still letting them browse", () => {
+    expect(canAccessPanel("member")).toBe(false);
+    expect(canViewLibrary("member")).toBe(true);
+  });
+
+  it("allows the three staff roles", () => {
+    expect(canAccessPanel("owner")).toBe(true);
+    expect(canAccessPanel("admin")).toBe(true);
+    expect(canAccessPanel("editor")).toBe(true);
+  });
+
+  it("is strictly narrower than library access", () => {
+    const panel = USER_ROLES.filter(canAccessPanel);
+    const library = USER_ROLES.filter(canViewLibrary);
+    expect(panel.length).toBeLessThan(library.length);
+    for (const role of panel) expect(canViewLibrary(role)).toBe(true);
+  });
+});
+
+describe("DEFAULT_APPROVED_ROLE", () => {
+  it("grants library access only — approving someone must not hand them the panel", () => {
+    expect(DEFAULT_APPROVED_ROLE).toBe("member");
+    expect(canViewLibrary(DEFAULT_APPROVED_ROLE)).toBe(true);
+    expect(canAccessPanel(DEFAULT_APPROVED_ROLE)).toBe(false);
+    expect(canManageUsers(DEFAULT_APPROVED_ROLE)).toBe(false);
+  });
+});
+
 describe("canEditSettings", () => {
-  it("allows owner and admin but not editor", () => {
+  it("allows owner and admin but not editor or member", () => {
     expect(canEditSettings("owner")).toBe(true);
     expect(canEditSettings("admin")).toBe(true);
     expect(canEditSettings("editor")).toBe(false);
+    expect(canEditSettings("member")).toBe(false);
   });
 });
 
@@ -88,7 +127,7 @@ describe("accessDecisionSchema", () => {
     // "owner" is a valid role in the enum, but the server refuses to modify an
     // owner record at all — this asserts the payload shape, and
     // lib/auth/access.ts guards the transition itself.
-    const grantable: UserRole[] = ["admin", "editor"];
+    const grantable: UserRole[] = ["admin", "editor", "member"];
     for (const role of grantable) {
       expect(accessDecisionSchema.safeParse({ status: "approved", role }).success).toBe(
         true,

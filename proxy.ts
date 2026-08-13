@@ -3,42 +3,49 @@ import { NextResponse, type NextRequest } from "next/server";
 /**
  * Next 16 renamed `middleware` to `proxy`. It runs on the Node runtime.
  *
- * Three jobs, all deliberately cheap — the proxy runs on every request and the
+ * Two jobs, both deliberately cheap — the proxy runs on every request and the
  * docs warn against relying on shared modules here:
  *
- *  1. Set the Content-Security-Policy (split policy, see below).
- *  2. Do an OPTIMISTIC admin session check — cookie present or not.
- *  3. Hand the admin nonce down via a request header.
+ *  1. An OPTIMISTIC gate — is a session cookie present at all?
+ *  2. Set the Content-Security-Policy.
  *
- * (2) is a redirect convenience, NOT a security boundary. The cookie is only
- * verified against Firebase in `requireAdmin()`, which every admin page and
- * every mutating route handler calls for itself. See CLAUDE.md rule #5.
+ * (1) is a redirect convenience, NOT a security boundary. The cookie is only
+ * verified against Firebase in `requireSession()` / `requireAdmin()`, which the
+ * gated layouts and every mutating route call for themselves. A forged cookie
+ * gets past this file and no further. See CLAUDE.md rule #5.
  *
  * ---------------------------------------------------------------------------
  * Why the CSP is split
  * ---------------------------------------------------------------------------
  * A nonce must be unique per request, so Next.js can only apply it while
- * rendering dynamically. Using a nonce site-wide would disable static
- * rendering, ISR and CDN caching — which is the entire scaling strategy for
- * the public library (PRD §17).
+ * rendering dynamically — a nonce on a static route would disable prerendering.
  *
- * So:
- *   • /admin/*  → strict nonce CSP. Already dynamic and `no-store`, and it is
- *                 the only surface with an authenticated session to protect.
- *   • public    → static CSP with 'unsafe-inline' for scripts, because React's
- *                 streaming payload is injected inline. Acceptable here: these
- *                 pages carry no session, all content renders as text nodes
- *                 (dangerouslySetInnerHTML is banned repo-wide), and there is
- *                 no user-generated content. object-src, base-uri and
- *                 frame-ancestors stay locked down either way.
- *
- * Setting a header from the proxy does NOT force dynamic rendering; only
- * *reading* headers() inside a page does. That is why public pages stay static.
+ * The library is gated, so it reads the session cookie and is already dynamic;
+ * it costs nothing to give it a strict nonce CSP. Only the landing and sign-in
+ * pages remain static, and they fall back to 'unsafe-inline' because React's
+ * streaming payload is injected inline. Those two pages carry no session and
+ * no user content, so the trade-off is contained.
  */
 
 const SESSION_COOKIE = "sts_session";
 
 const isDev = process.env.NODE_ENV === "development";
+
+/** Reachable without an account. Everything else requires a session. */
+const PUBLIC_PATHS = new Set(["/", "/login", "/offline"]);
+
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  // Auth endpoints must stay reachable so sign-in and sign-out can work.
+  if (pathname.startsWith("/api/auth")) return true;
+  if (pathname === "/api/health") return true;
+  if (pathname === "/robots.txt" || pathname === "/sitemap.xml") return true;
+  // The session exchange itself is called before a cookie exists.
+  if (pathname === "/api/admin/session") return true;
+  // Legacy alias that just redirects to /login.
+  if (pathname === "/admin/login") return true;
+  return false;
+}
 
 function cdnOrigin(): string {
   try {
@@ -56,7 +63,7 @@ function buildCsp(scriptSrc: string): string {
     // Tailwind injects styles at runtime; inline styles are unavoidable and
     // far lower risk than inline scripts.
     `style-src 'self' 'unsafe-inline'`,
-    `img-src 'self' data: blob: ${cdn} https://i.ytimg.com https://img.youtube.com`,
+    `img-src 'self' data: blob: ${cdn} https://i.ytimg.com https://img.youtube.com https://lh3.googleusercontent.com`,
     `media-src 'self' ${cdn}`,
     `font-src 'self' data:`,
     `frame-src https://www.youtube-nocookie.com https://www.youtube.com`,
@@ -77,44 +84,52 @@ function buildCsp(scriptSrc: string): string {
 }
 
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const isAdmin = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
+  const { pathname, search } = request.nextUrl;
+  const hasCookie = request.cookies.has(SESSION_COOKIE);
+  const isPublic = isPublicPath(pathname);
 
-  // --- Optimistic admin gate -------------------------------------------------
-  const isProtectedPage = pathname.startsWith("/admin") && pathname !== "/admin/login";
-  if (isProtectedPage && !request.cookies.has(SESSION_COOKIE)) {
+  // ── Optimistic gate ────────────────────────────────────────────────────────
+  if (!isPublic && !hasCookie) {
+    // API callers get a 401 rather than an HTML redirect they can't use.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = request.nextUrl.clone();
-    url.pathname = "/admin/login";
-    url.search = `?next=${encodeURIComponent(pathname)}`;
+    url.pathname = "/login";
+    url.search = `?next=${encodeURIComponent(pathname + search)}`;
     return NextResponse.redirect(url);
   }
 
-  // Signed-in admins shouldn't land back on the login screen.
-  if (pathname === "/admin/login" && request.cookies.has(SESSION_COOKIE)) {
+  // Signed-in users shouldn't sit on the sign-in screen.
+  if (pathname === "/login" && hasCookie) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin";
+    url.pathname = "/prompts";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
-  // --- CSP -------------------------------------------------------------------
-  if (isAdmin) {
-    const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-    const csp = buildCsp(
-      `'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
-    );
+  // ── CSP ────────────────────────────────────────────────────────────────────
+  // Static routes can't carry a nonce; everything gated is dynamic, so it can.
+  const staticRoute = pathname === "/" || pathname === "/login";
 
-    const headers = new Headers(request.headers);
-    headers.set("x-nonce", nonce);
-    headers.set("content-security-policy", csp);
-
-    const response = NextResponse.next({ request: { headers } });
+  if (staticRoute) {
+    const csp = buildCsp(`'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`);
+    const response = NextResponse.next();
     response.headers.set("content-security-policy", csp);
     return response;
   }
 
-  const csp = buildCsp(`'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`);
-  const response = NextResponse.next();
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = buildCsp(
+    `'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
+  );
+
+  const headers = new Headers(request.headers);
+  headers.set("x-nonce", nonce);
+  headers.set("content-security-policy", csp);
+
+  const response = NextResponse.next({ request: { headers } });
   response.headers.set("content-security-policy", csp);
   return response;
 }
@@ -123,12 +138,11 @@ export const config = {
   matcher: [
     /*
      * Everything except static assets and image optimisation. Without this the
-     * proxy would run on CSS/JS/font requests and the admin redirect could
-     * block them.
+     * proxy would run on CSS/JS/font requests and the gate could block them.
      */
     {
       source:
-        "/((?!_next/static|_next/image|favicon.ico|icons/|screenshots/|manifest.webmanifest|sw.js|robots.txt|sitemap.xml).*)",
+        "/((?!_next/static|_next/image|favicon.ico|icons/|screenshots/|manifest.webmanifest|sw.js).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

@@ -52,10 +52,16 @@ type Outcome =
  * We sign out of the client SDK immediately afterwards — the server cookie is
  * the only credential that matters from that point on.
  */
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({
+  next,
+  initialMode = "signin",
+}: {
+  next: string;
+  initialMode?: "signin" | "signup";
+}) {
   const router = useRouter();
 
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -368,7 +374,7 @@ export function LoginForm({ next }: { next: string }) {
 
       {mode === "signup" ? (
         <p className="text-center text-xs text-fg-subtle">
-          New accounts need admin approval before they can access the panel.
+          New accounts need admin approval before the library unlocks.
         </p>
       ) : null}
 
@@ -400,14 +406,14 @@ function OutcomePanel({
       tone: "text-warning",
       ring: "border-warning/30 bg-warning/8",
       title: "Access request sent to admin",
-      body: "Your account has been created and the admin has been notified. Once they approve you, sign in again and you'll be straight in.",
+      body: "Your account has been created and the admin has been notified. Once they approve you, sign in again and the library unlocks.",
     },
     rejected: {
       Icon: ShieldX,
       tone: "text-danger",
       ring: "border-danger/30 bg-danger/8",
       title: "Access not approved",
-      body: "The admin hasn't approved this account for the panel. If you think that's a mistake, get in touch with them directly.",
+      body: "The admin hasn't approved this account. If you think that's a mistake, get in touch with them directly.",
     },
     suspended: {
       Icon: ShieldX,

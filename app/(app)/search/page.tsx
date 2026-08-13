@@ -4,8 +4,6 @@ import { SearchClient } from "@/components/prompt/search-client";
 import { listPrompts } from "@/lib/firebase/queries";
 import { safeQuery } from "@/lib/firebase/safe";
 
-export const revalidate = 3600;
-
 export const metadata: Metadata = {
   title: "Search",
   description: "Search the AI prompt library by keyword, tool or tag.",

@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 
 import { resolveAccess } from "@/lib/auth/access";
 import { adminAuth } from "@/lib/firebase/admin";
-import type { AccessStatus, UserRole } from "@/lib/schemas/user";
+import { canAccessPanel, type AccessStatus, type UserRole } from "@/lib/schemas/user";
 
 /**
  * Admin authentication — Firebase Auth session cookies.
@@ -26,13 +26,16 @@ export const SESSION_COOKIE = "sts_session";
 /** Firebase caps session cookies at 14 days; 5 is a reasonable admin window. */
 const SESSION_MAX_AGE_MS = 5 * 24 * 60 * 60 * 1000;
 
-export type AdminSession = {
+export type Session = {
   uid: string;
   email: string;
   role: UserRole;
   name?: string;
   picture?: string;
 };
+
+/** Kept as an alias so admin call sites read clearly. */
+export type AdminSession = Session;
 
 export type SignInResult =
   | { ok: true; cookie: string; maxAgeMs: number; role: UserRole }
@@ -84,13 +87,16 @@ export async function createSessionFromIdToken(idToken: string): Promise<SignInR
 }
 
 /**
- * Verifies the session cookie. Returns null when absent, invalid, revoked, or
- * held by an account that is no longer approved.
+ * Verifies the session cookie and returns the caller, or null.
  *
  * This is the real security boundary. proxy.ts only checks whether a cookie
  * exists, which is a redirect convenience — never rely on it. CLAUDE.md rule #5.
+ *
+ * The claims are written only on approval and cleared on revocation, and
+ * revoking refresh tokens invalidates this cookie, so they are authoritative
+ * without a Firestore read on every request.
  */
-export async function requireAdmin(): Promise<AdminSession | null> {
+async function readSession(): Promise<Session | null> {
   const store = await cookies();
   const value = store.get(SESSION_COOKIE)?.value;
   if (!value) return null;
@@ -98,17 +104,13 @@ export async function requireAdmin(): Promise<AdminSession | null> {
   try {
     const decoded = await adminAuth().verifySessionCookie(value, true);
 
-    // The claim is written only on approval and cleared on revocation, and
-    // revoking refresh tokens invalidates this cookie, so the claim is
-    // authoritative without a Firestore read on every admin request.
-    if (decoded.admin !== true) return null;
-
-    const role = (decoded.role as UserRole | undefined) ?? "editor";
+    // Set to false when an account is rejected or suspended.
+    if (decoded.approved !== true) return null;
 
     return {
       uid: decoded.uid,
       email: decoded.email ?? "",
-      role,
+      role: (decoded.role as UserRole | undefined) ?? "member",
       name: typeof decoded.name === "string" ? decoded.name : undefined,
       picture: typeof decoded.picture === "string" ? decoded.picture : undefined,
     };
@@ -118,13 +120,41 @@ export async function requireAdmin(): Promise<AdminSession | null> {
   }
 }
 
+/**
+ * Any approved account. Gates the library — every prompt page requires this.
+ */
+export async function requireSession(): Promise<Session | null> {
+  return readSession();
+}
+
+/**
+ * Admin-panel access. Members are approved for the library but must NOT reach
+ * /admin, so this is a strictly narrower check than `requireSession`.
+ */
+export async function requireAdmin(): Promise<AdminSession | null> {
+  const session = await readSession();
+  if (!session || !canAccessPanel(session.role)) return null;
+  return session;
+}
+
 export function sessionCookieOptions(maxAgeMs: number) {
   return {
     name: SESSION_COOKIE,
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    // Strict is viable because the admin panel is never linked to externally.
-    sameSite: "strict" as const,
+    /*
+     * Lax, not Strict.
+     *
+     * The library is gated but people share prompt links — from WhatsApp,
+     * email, Slack. Under Strict the cookie is withheld on that first
+     * cross-site navigation, so a signed-in user following a shared link would
+     * be bounced to the login screen and think their session had expired.
+     *
+     * Lax still withholds the cookie on cross-site POST, and every mutating
+     * route additionally checks the Origin header (`sameOrigin()`), so the
+     * CSRF posture is unchanged.
+     */
+    sameSite: "lax" as const,
     path: "/",
     maxAge: Math.floor(maxAgeMs / 1000),
   };

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 import { adminDb } from "@/lib/firebase/admin";
 import type { Category } from "@/lib/schemas/category";
 import type { Prompt, PromptStatus } from "@/lib/schemas/prompt";
@@ -9,10 +11,21 @@ import type { SortOption, PromptType } from "@/lib/constants/site";
 /**
  * Server-side reads via the Admin SDK.
  *
- * These run at build time and during ISR revalidation — NOT per visitor
- * request. Public pages are statically generated, so Firestore read volume
- * tracks admin edits rather than traffic. See PRD §17.
+ * The library is gated, so its pages read the session cookie and are therefore
+ * DYNAMIC — they can't be statically prerendered any more. Without care that
+ * would mean a Firestore round trip on every page view.
+ *
+ * So the data layer is cached instead of the page: `unstable_cache` keeps
+ * results in Next's data cache, keyed by arguments and tagged with the same
+ * tags `revalidateTag` already uses on publish. Net effect is unchanged from
+ * the static design — Firestore read volume tracks admin edits, not traffic —
+ * while every request still passes through the auth check.
+ *
+ * (`unstable_cache` is deprecated in favour of `use cache`, which requires
+ * Cache Components. We deliberately don't enable those — see CLAUDE.md.)
  */
+
+const CACHE_TTL_SECONDS = 3600;
 
 export const COLLECTIONS = {
   prompts: "prompts",
@@ -64,7 +77,7 @@ export type PromptQuery = {
   limit?: number;
 };
 
-export async function listPrompts(options: PromptQuery = {}): Promise<Prompt[]> {
+async function listPromptsUncached(options: PromptQuery = {}): Promise<Prompt[]> {
   const {
     status = "published",
     type,
@@ -102,7 +115,7 @@ export async function listPrompts(options: PromptQuery = {}): Promise<Prompt[]> 
   return snapshot.docs.map((doc) => toPrompt(doc.id, doc.data()));
 }
 
-export async function getPromptBySlug(slug: string): Promise<Prompt | null> {
+async function getPromptBySlugUncached(slug: string): Promise<Prompt | null> {
   const snapshot = await adminDb()
     .collection(COLLECTIONS.prompts)
     .where("slug", "==", slug)
@@ -142,7 +155,7 @@ export async function countPrompts(status?: PromptStatus): Promise<number> {
 }
 
 /** Same category, excluding self, ranked by copies. */
-export async function listRelatedPrompts(
+async function listRelatedPromptsUncached(
   prompt: Prompt,
   max = 8,
 ): Promise<Prompt[]> {
@@ -162,7 +175,7 @@ export async function listRelatedPrompts(
 
 // ── Categories ───────────────────────────────────────────────────────────────
 
-export async function listCategories(
+async function listCategoriesUncached(
   options: { visibleOnly?: boolean } = {},
 ): Promise<Category[]> {
   const { visibleOnly = true } = options;
@@ -174,7 +187,7 @@ export async function listCategories(
   return snapshot.docs.map((doc) => toCategory(doc.id, doc.data()));
 }
 
-export async function getCategoryBySlug(slug: string): Promise<Category | null> {
+async function getCategoryBySlugUncached(slug: string): Promise<Category | null> {
   const snapshot = await adminDb()
     .collection(COLLECTIONS.categories)
     .where("slug", "==", slug)
@@ -187,7 +200,7 @@ export async function getCategoryBySlug(slug: string): Promise<Category | null> 
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-export async function getSiteSettings(): Promise<SiteSettings> {
+async function getSiteSettingsUncached(): Promise<SiteSettings> {
   try {
     const doc = await adminDb().collection(COLLECTIONS.settings).doc("site").get();
     if (!doc.exists) return DEFAULT_SETTINGS;
@@ -197,3 +210,42 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     return DEFAULT_SETTINGS;
   }
 }
+
+
+// ── Cached public readers ────────────────────────────────────────────────────
+// Arguments form part of the cache key automatically. Tags mirror
+// lib/firebase/mutations.ts so publishing invalidates exactly what changed.
+
+export const listPrompts = unstable_cache(listPromptsUncached, ["prompts:list"], {
+  tags: ["prompts"],
+  revalidate: CACHE_TTL_SECONDS,
+});
+
+export const getPromptBySlug = unstable_cache(
+  getPromptBySlugUncached,
+  ["prompts:by-slug"],
+  { tags: ["prompts"], revalidate: CACHE_TTL_SECONDS },
+);
+
+export const listRelatedPrompts = unstable_cache(
+  listRelatedPromptsUncached,
+  ["prompts:related"],
+  { tags: ["prompts"], revalidate: CACHE_TTL_SECONDS },
+);
+
+export const listCategories = unstable_cache(
+  listCategoriesUncached,
+  ["categories:list"],
+  { tags: ["categories"], revalidate: CACHE_TTL_SECONDS },
+);
+
+export const getCategoryBySlug = unstable_cache(
+  getCategoryBySlugUncached,
+  ["categories:by-slug"],
+  { tags: ["categories"], revalidate: CACHE_TTL_SECONDS },
+);
+
+export const getSiteSettings = unstable_cache(getSiteSettingsUncached, ["settings"], {
+  tags: ["settings"],
+  revalidate: CACHE_TTL_SECONDS,
+});

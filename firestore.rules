@@ -3,15 +3,21 @@ rules_version = '2';
 /**
  * STS Prompt Library — Firestore security rules.
  *
- * Posture: the public may read published content and nothing else. NO client
- * may write to ANY collection, ever.
+ * Posture: NO client may read or write ANY collection. Everything is denied.
  *
- * `allow write: if false` everywhere is deliberate, not an oversight. The
- * Firebase Admin SDK bypasses these rules entirely, so legitimate admin writes
- * still work through server route handlers — where Zod validation, the audit
- * log, search-index rebuilds and cache revalidation all run. Allowing direct
- * client writes (even for an authenticated admin) would bypass every one of
- * those. See CLAUDE.md rule #1.
+ * This is not laziness — it is the point. The library is gated behind an
+ * approved account, and every read the app performs runs server-side through
+ * the Firebase Admin SDK (which bypasses these rules) after `requireSession()`
+ * has verified the caller.
+ *
+ * Why a blanket deny matters here: the Firebase web config in the client bundle
+ * is public by design. If these rules allowed `read: if resource.data.status ==
+ * 'published'`, anyone could take that config, query Firestore directly, and
+ * pull every prompt — completely bypassing the sign-in gate. The UI gate is
+ * only as strong as these rules.
+ *
+ * The browser Firebase SDK is used for Authentication ONLY. It never reads
+ * Firestore. See lib/firebase/client.ts.
  *
  * Tested in tests/rules/. Any change here requires a test.
  */
@@ -19,32 +25,25 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Published prompts are world-readable. Drafts are invisible to clients.
+    // Prompt content — server-side reads only, after an auth check.
     match /prompts/{promptId} {
-      allow get, list: if resource.data.status == 'published';
-      allow write: if false;
+      allow read, write: if false;
     }
 
-    // Visible categories only.
     match /categories/{categoryId} {
-      allow get, list: if resource.data.isVisible == true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
-    // Tags are a public vocabulary used to render filter chips.
     match /tags/{tagId} {
-      allow get, list: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
-    // Branding and copy are public by nature (logo, site name, hero text).
+    // Branding and site copy. Rendered server-side into the page.
     match /settings/{docId} {
-      allow get: if true;
-      allow list: if false;
-      allow write: if false;
+      allow read, write: if false;
     }
 
-    // Internal registries — never exposed to a browser.
+    // Internal registries.
     match /media/{mediaId} {
       allow read, write: if false;
     }
@@ -53,8 +52,8 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Access requests and roles. Entirely server-managed — a client being able
-    // to write here would let anyone approve themselves.
+    // Access requests and roles. A client being able to write here would let
+    // anyone approve themselves.
     match /users/{uid} {
       allow read, write: if false;
     }
@@ -63,7 +62,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Default deny.
+    // Default deny — belt and braces for any collection added later.
     match /{document=**} {
       allow read, write: if false;
     }
