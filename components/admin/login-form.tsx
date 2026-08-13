@@ -297,7 +297,7 @@ export function LoginForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={busy}
-              placeholder="Anushka Roy"
+              placeholder="Your full name"
             />
           </div>
         ) : null}

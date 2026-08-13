@@ -55,19 +55,34 @@ function cdnOrigin(): string {
   }
 }
 
+/**
+ * Firebase Auth's sign-in domain, e.g. https://my-project.firebaseapp.com.
+ *
+ * The popup/redirect flow loads a hidden iframe from `<authDomain>/__/auth/iframe`
+ * and a helper script from apis.google.com. If the CSP blocks either, the SDK
+ * surfaces the failure as an opaque `auth/internal-error` — which is exactly
+ * what it looks like when Google sign-in "just doesn't work".
+ */
+function firebaseAuthOrigin(): string {
+  const domain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+  return domain ? `https://${domain}` : "";
+}
+
 function buildCsp(scriptSrc: string): string {
   const cdn = cdnOrigin();
+  const authOrigin = firebaseAuthOrigin();
   return [
     `default-src 'self'`,
-    `script-src ${scriptSrc}`,
+    // apis.google.com is required by the Firebase Auth popup/redirect resolver.
+    `script-src ${scriptSrc} https://apis.google.com`,
     // Tailwind injects styles at runtime; inline styles are unavoidable and
     // far lower risk than inline scripts.
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob: ${cdn} https://i.ytimg.com https://img.youtube.com https://lh3.googleusercontent.com`,
     `media-src 'self' ${cdn}`,
     `font-src 'self' data:`,
-    `frame-src https://www.youtube-nocookie.com https://www.youtube.com`,
-    `connect-src 'self' ${cdn} https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com${
+    `frame-src 'self' ${authOrigin} https://accounts.google.com https://apis.google.com https://www.youtube-nocookie.com https://www.youtube.com`,
+    `connect-src 'self' ${cdn} ${authOrigin} https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com${
       isDev ? " ws: http://localhost:*" : ""
     }`,
     `worker-src 'self' blob:`,
