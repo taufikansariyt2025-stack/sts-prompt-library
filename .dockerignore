@@ -1,0 +1,45 @@
+# Anything not needed to build the app. Keeping this tight makes the build
+# context small and, more importantly, stops local secrets reaching the image.
+
+# ── Secrets — never copy these into a build context ──────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*-service-account*.json
+*firebase-adminsdk*.json
+
+# ── Dependencies & build output (reinstalled/rebuilt inside the image) ───────
+node_modules
+.next
+out
+build
+coverage
+.turbo
+
+# ── Source control & tooling ────────────────────────────────────────────────
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.log
+.DS_Store
+
+# ── Tests & local-only artefacts ────────────────────────────────────────────
+tests
+playwright-report
+test-results
+*.tsbuildinfo
+
+# ── Docs and source material ────────────────────────────────────────────────
+# The 26 MB .docx is only needed by `pnpm extract:docx`, which is run locally,
+# never inside the container.
+prompt-docs
+*.md
+!README.md
+
+# ── Docker files themselves ─────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+docker-compose*.yml

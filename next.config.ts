@@ -31,6 +31,14 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  /*
+   * Emits `.next/standalone/server.js` with a traced, minimal node_modules.
+   * Required by the Docker image — the runner stage copies only that bundle,
+   * which is what keeps the final image small and avoids shipping pnpm's
+   * symlinked store. Harmless for Vercel, which ignores it.
+   */
+  output: "standalone",
+
   reactStrictMode: true,
 
   // Stable in Next 16 — auto-memoises components and cuts re-renders.

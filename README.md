@@ -106,6 +106,57 @@ Content is ~85% video and heavily skewed to 9:16, so the UI is built vertical-fi
 
 ---
 
+## Deploying to Dokploy
+
+The repo ships a multi-stage `Dockerfile` (deps → builder → runner) producing a
+non-root standalone image, plus a `docker-compose.yml` with the Traefik labels
+Dokploy's Compose deploys need.
+
+### Use the **Compose** deployment type
+
+1. Dokploy → **Create → Compose**, point it at this repo, Compose path `./docker-compose.yml`.
+2. Dokploy → **Environment** → paste every value from `.env.example`, including `DOMAIN`.
+3. Point your DNS A record at the VPS, then **Deploy**.
+
+Traefik issues the Let's Encrypt certificate automatically and redirects HTTP → HTTPS.
+
+### The one thing that catches people out
+
+`NEXT_PUBLIC_*` variables are **baked into the browser bundle at build time**, which
+is why they appear under both `build.args` and `environment` in the compose file.
+Changing one requires a **rebuild** — restarting the container will not pick it up.
+
+`lib/env.ts` validates them at import, so a missing value fails the build with a
+readable message instead of shipping a broken client.
+
+### First deploy renders empty pages unless you do this
+
+Public routes are prerendered at build time. If the build can't reach Firestore,
+they build empty and only fill in on the first ISR revalidation (up to an hour).
+Passing `FIREBASE_SERVICE_ACCOUNT_KEY` as a build arg (already wired up) makes the
+first deploy serve real content immediately.
+
+Trade-off: build args are visible in `docker history`. On a private VPS building
+from private source that's usually fine — if it isn't for you, drop the build arg
+and accept the delay.
+
+### Notes
+
+| | |
+|---|---|
+| Container port | `3020`, internal only. Never publish a host port on a shared Dokploy VPS |
+| Base image | Debian `bookworm-slim`, **not** Alpine — `sharp` loads its glibc libvips prebuild far more reliably than the musl one |
+| Health check | `GET /api/health`, which deliberately never touches Firestore or R2 so a third-party outage can't cause a restart loop |
+| Rate limiting | Falls back to an in-memory limiter without Upstash — per-container, so set `UPSTASH_*` before running more than one replica |
+
+Local sanity check without Dokploy:
+
+```bash
+docker compose build && docker compose up
+```
+
+---
+
 ## Architecture in one paragraph
 
 Public pages are statically generated and revalidated on publish, so **visitor traffic never reads Firestore** — 1M page views costs roughly what 10K does. All writes go through server route handlers using the Admin SDK; Firestore rules deny every client write outright. Media uploads go browser → presigned URL → R2 without passing through the server. The admin panel sits behind Firebase Auth with an HttpOnly session cookie, verified independently on every page and every API route.

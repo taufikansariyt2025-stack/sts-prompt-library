@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# STS Prompt Library — Docker Compose (Dokploy "Compose" deployment)
+#
+# WHY THIS FILE CARRIES HAND-WRITTEN TRAEFIK LABELS
+# Dokploy's "Application" deploys auto-inject Traefik routing. "Compose" deploys
+# do NOT — the services land on an isolated bridge network that Traefik (which
+# lives on `dokploy-network`) cannot see, so the Domains tab produces a router
+# rule pointing at nothing and Traefik answers "404 page not found".
+# Fix: attach to the external `dokploy-network` AND emit the labels ourselves.
+#
+# SET EVERYTHING IN  Dokploy → Environment.  Nothing is hardcoded below.
+# Required: DOMAIN, the eight NEXT_PUBLIC_* values, FIREBASE_SERVICE_ACCOUNT_KEY,
+# ADMIN_EMAILS, and the R2_* block. See .env.example for what each one is.
+#
+# ⚠ NEXT_PUBLIC_* ARE BUILD-TIME. They are baked into the browser bundle during
+#   `docker build`, which is why they appear under BOTH `build.args` and
+#   `environment`. Changing one requires a REBUILD, not just a restart.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_CDN_URL: ${NEXT_PUBLIC_CDN_URL}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        # Optional — lets the first deploy prerender real content instead of
+        # empty pages. See the note in the Dockerfile about `docker history`.
+        FIREBASE_SERVICE_ACCOUNT_KEY: ${FIREBASE_SERVICE_ACCOUNT_KEY:-}
+
+    image: sts-prompt-library:latest
+    restart: unless-stopped
+
+    # Internal only — Traefik reaches the container over dokploy-network.
+    # Never publish a host port on a shared Dokploy VPS.
+    expose:
+      - "3020"
+
+    environment:
+      NODE_ENV: production
+      PORT: "3020"
+      HOSTNAME: 0.0.0.0
+
+      # ── Public config (also read by server components at runtime) ──────────
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXT_PUBLIC_CDN_URL: ${NEXT_PUBLIC_CDN_URL}
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+
+      # ── Server-only secrets (runtime) ─────────────────────────────────────
+      # Full service-account JSON, base64-encoded on one line:
+      #   base64 -i service-account.json | tr -d '\n'
+      FIREBASE_SERVICE_ACCOUNT_KEY: ${FIREBASE_SERVICE_ACCOUNT_KEY}
+
+      # Emails allowed to sign in as owner and approve access requests.
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+
+      # Cloudflare R2 — image uploads fail without these.
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-sts-prompt-library-media}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL}
+
+      # Optional — falls back to an in-memory limiter, which is per-container
+      # and therefore NOT sufficient if you ever run more than one replica.
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:-}
+
+    # `default` keeps in-compose siblings reachable; `dokploy-network` is where
+    # Traefik lives. Both are required.
+    networks:
+      - default
+      - dokploy-network
+
+    labels:
+      - "traefik.enable=true"
+      # Required because the container sits on two networks — tells Traefik
+      # which one to dial.
+      - "traefik.docker.network=dokploy-network"
+
+      # HTTPS router (Let's Encrypt cert issued by Traefik)
+      - "traefik.http.routers.sts-prompts-secure.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.sts-prompts-secure.entrypoints=websecure"
+      - "traefik.http.routers.sts-prompts-secure.tls=true"
+      - "traefik.http.routers.sts-prompts-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sts-prompts-secure.service=sts-prompts-svc"
+
+      # HTTP router → permanent redirect to HTTPS
+      - "traefik.http.routers.sts-prompts-web.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.sts-prompts-web.entrypoints=web"
+      - "traefik.http.routers.sts-prompts-web.middlewares=sts-prompts-https-redirect"
+      - "traefik.http.middlewares.sts-prompts-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.sts-prompts-https-redirect.redirectscheme.permanent=true"
+
+      # Upstream port
+      - "traefik.http.services.sts-prompts-svc.loadbalancer.server.port=3020"
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3020/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Created by Dokploy at install time. `external: true` = attach, don't create.
+networks:
+  dokploy-network:
+    external: true
