@@ -18,12 +18,9 @@ import {
 import {
   AlertCircle,
   ArrowLeft,
-  CheckCircle2,
-  Clock,
   Loader2,
   LogIn,
   MailCheck,
-  ShieldX,
   UserPlus,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -37,10 +34,18 @@ import { cn } from "@/lib/utils/cn";
 type Href = Parameters<ReturnType<typeof useRouter>["replace"]>[0];
 
 type Mode = "signin" | "signup" | "reset";
-type Outcome =
-  | { kind: "pending" | "rejected" | "suspended"; message: string }
-  | { kind: "reset-sent"; message: string }
-  | null;
+
+/**
+ * Hand the outcome to the server via the URL and do a FULL page load.
+ *
+ * A client-side transition would be smoother, but this path is exactly what
+ * broke before: the Google redirect flow navigates away and back, discarding
+ * React state, so the "request pending" message silently vanished and the user
+ * was left staring at the login form again. A location replace cannot lose it.
+ */
+function showStatus(status: "pending" | "rejected" | "suspended" | "reset-sent") {
+  window.location.replace(`/login?status=${status}`);
+}
 
 /**
  * Admin sign-in and access request.
@@ -66,34 +71,37 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<Outcome>(null);
-  const [pending, setPending] = useState<"google" | "form" | "boot" | null>("boot");
+  const [pending, setPending] = useState<"google" | "form" | null>(null);
 
   /**
-   * Completes a redirect-based Google sign-in.
+   * Resumes a redirect-based Google sign-in.
    *
-   * Popups are blocked often enough — and unavailable in some in-app browsers —
-   * that redirect is a necessary fallback, and it has to be resumed on load.
+   * Popups get blocked often enough — and are unavailable in some in-app
+   * browsers — that redirect is a necessary fallback, and it has to be picked
+   * up when the browser lands back here.
+   *
+   * This runs in the BACKGROUND rather than behind a loading gate: blocking the
+   * first paint on a Firebase round trip meant the sign-in form wasn't in the
+   * server HTML at all, so anyone arriving normally stared at a spinner first.
+   * The overlay only appears once we actually have a credential to exchange.
    */
   useEffect(() => {
     let active = true;
 
     getRedirectResult(firebaseAuth())
       .then(async (credential) => {
-        if (!active) return;
-        if (credential) await establishSession(credential);
+        if (!active || !credential) return;
+        setPending("google");
+        await establishSession(credential);
       })
       .catch((err) => {
         if (active) setError(toMessage(err));
-      })
-      .finally(() => {
-        if (active) setPending(null);
       });
 
     return () => {
       active = false;
     };
-    // Runs once on mount to resume a redirect that started on a previous page.
+    // Runs once on mount to resume a redirect started on a previous page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -126,7 +134,7 @@ export function LoginForm({
       payload.status === "rejected" ||
       payload.status === "suspended"
     ) {
-      setOutcome({ kind: payload.status, message: payload.error ?? "" });
+      showStatus(payload.status);
       return;
     }
 
@@ -167,11 +175,7 @@ export function LoginForm({
 
       if (mode === "reset") {
         await sendPasswordResetEmail(auth, email.trim());
-        setOutcome({
-          kind: "reset-sent",
-          message: `If an account exists for ${email.trim()}, a reset link is on its way.`,
-        });
-        setPending(null);
+        showStatus("reset-sent");
         return;
       }
 
@@ -198,21 +202,6 @@ export function LoginForm({
     } finally {
       setPending(null);
     }
-  }
-
-  // ── Resuming a redirect ──────────────────────────────────────────────────
-  if (pending === "boot") {
-    return (
-      <div className="grid place-items-center gap-3 py-10">
-        <Loader2 className="size-5 animate-spin text-accent" />
-        <p className="text-sm text-fg-muted">Checking your session…</p>
-      </div>
-    );
-  }
-
-  // ── Terminal states ──────────────────────────────────────────────────────
-  if (outcome) {
-    return <OutcomePanel outcome={outcome} onBack={() => setOutcome(null)} />;
   }
 
   const busy = pending !== null;
@@ -387,66 +376,6 @@ export function LoginForm({
           <FieldError>{error}</FieldError>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-// ── Terminal state panels ──────────────────────────────────────────────────
-
-function OutcomePanel({
-  outcome,
-  onBack,
-}: {
-  outcome: NonNullable<Outcome>;
-  onBack: () => void;
-}) {
-  const config = {
-    pending: {
-      Icon: Clock,
-      tone: "text-warning",
-      ring: "border-warning/30 bg-warning/8",
-      title: "Access request sent to admin",
-      body: "Your account has been created and the admin has been notified. Once they approve you, sign in again and the library unlocks.",
-    },
-    rejected: {
-      Icon: ShieldX,
-      tone: "text-danger",
-      ring: "border-danger/30 bg-danger/8",
-      title: "Access not approved",
-      body: "The admin hasn't approved this account. If you think that's a mistake, get in touch with them directly.",
-    },
-    suspended: {
-      Icon: ShieldX,
-      tone: "text-danger",
-      ring: "border-danger/30 bg-danger/8",
-      title: "Access suspended",
-      body: "This account's access has been suspended. Contact the admin if you need it restored.",
-    },
-    "reset-sent": {
-      Icon: CheckCircle2,
-      tone: "text-success",
-      ring: "border-success/30 bg-success/8",
-      title: "Check your email",
-      body: outcome.message,
-    },
-  }[outcome.kind];
-
-  const { Icon } = config;
-
-  return (
-    <div className="space-y-5 text-center">
-      <div className={cn("mx-auto grid size-12 place-items-center rounded-full border", config.ring)}>
-        <Icon className={cn("size-5", config.tone)} />
-      </div>
-
-      <div>
-        <h2 className="text-base font-semibold tracking-tight">{config.title}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-fg-muted">{config.body}</p>
-      </div>
-
-      <Button variant="outline" full onClick={onBack}>
-        Back to sign in
-      </Button>
     </div>
   );
 }
