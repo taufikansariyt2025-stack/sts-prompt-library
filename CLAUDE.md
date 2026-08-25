@@ -76,8 +76,12 @@ await createPrompt(guard.session, parsed.data);
 ### 5. Every admin route re-verifies the session
 `proxy.ts` only checks whether a cookie *exists* — that is a redirect convenience, not a security boundary. Every admin API route calls `guardAdmin()` (origin + session + rate limit) and every admin page sits under the guarded `(panel)` layout, which calls `requireAdmin()`.
 
-### 6. Files never pass through the server
-Uploads go browser → presigned URL → R2. The server only signs the URL and afterwards verifies the object with a HEAD request. Never proxy file bytes through a route handler.
+### 6. Media is private — never expose a public bucket URL
+The R2 bucket has **no public access, no custom domain and no CORS rules**. Uploads go browser → `POST /api/admin/upload` → R2, and reads go back through `GET /api/media/<key>`, which requires a session.
+
+This deliberately reverses the usual advice ("never proxy file bytes"). That advice exists because serverless functions have body-size limits and per-second billing — neither applies to a long-running container, and routing through the app buys three things that matter more here: previews are gated exactly like the pages that embed them, there is no CORS or custom domain to configure, and there is no public URL to leak. The 10 MB cap is what keeps the trade-off safe.
+
+`next/image` must use `unoptimized` for these (`shouldSkipOptimizer()`), because the optimiser fetches the source server-side without the viewer's cookie and would get a 401.
 
 ### 7. Public pages never read Firestore per request
 Everything under `app/(public)/` is Static or SSG with `revalidate = 3600` plus on-demand `revalidateTag`. **Verify with `pnpm build`** — every public route must show `○` or `●`, never `ƒ`. This is the entire scaling strategy (PRD §17).

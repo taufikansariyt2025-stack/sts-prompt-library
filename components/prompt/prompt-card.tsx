@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/prompt/copy-button";
 import { TypeBadge } from "@/components/prompt/type-badge";
 import type { Prompt } from "@/lib/schemas/prompt";
 import { cn } from "@/lib/utils/cn";
+import { shouldSkipOptimizer } from "@/lib/utils/media";
 
 /**
  * Masonry tile.
@@ -132,7 +133,11 @@ export function PromptCard({
             blurDataURL={
               preview.kind === "image" ? preview.blurDataURL || undefined : undefined
             }
-            unoptimized={preview.kind === "image" && preview.source === "url"}
+            unoptimized={
+              preview.kind === "image"
+                ? shouldSkipOptimizer(preview.url, preview.source)
+                : false
+            }
             className="object-cover transition-transform duration-500 ease-[var(--ease-out-quint)] group-hover:scale-[1.04]"
           />
 

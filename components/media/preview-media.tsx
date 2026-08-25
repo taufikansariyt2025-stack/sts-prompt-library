@@ -3,6 +3,7 @@ import NextImage from "next/image";
 import { YouTubeEmbed } from "@/components/media/youtube-embed";
 import type { PreviewMedia as PreviewMediaValue } from "@/lib/schemas/media";
 import { cn } from "@/lib/utils/cn";
+import { shouldSkipOptimizer } from "@/lib/utils/media";
 
 /**
  * Renders whichever preview a prompt carries.
@@ -40,8 +41,7 @@ export function PreviewMedia({
         priority={priority}
         placeholder={media.blurDataURL ? "blur" : "empty"}
         blurDataURL={media.blurDataURL || undefined}
-        // External hosts aren't in remotePatterns, so skip the optimiser.
-        unoptimized={media.source === "url"}
+        unoptimized={shouldSkipOptimizer(media.url, media.source)}
         className="object-cover"
       />
     </div>

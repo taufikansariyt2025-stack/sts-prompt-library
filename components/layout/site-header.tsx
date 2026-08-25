@@ -7,6 +7,7 @@ import type { Session } from "@/lib/auth/session";
 import { canAccessPanel } from "@/lib/schemas/user";
 import type { SiteSettings } from "@/lib/schemas/settings";
 import { cn } from "@/lib/utils/cn";
+import { shouldSkipOptimizer } from "@/lib/utils/media";
 
 const NAV = [
   { href: "/prompts", label: "Browse" },
@@ -96,7 +97,7 @@ function Logo({ settings }: { settings: SiteSettings }) {
               height={logoLight.height}
               priority
               className={cn("h-8 w-auto", logoDark ? "dark:hidden" : "")}
-              unoptimized={logoLight.source === "url"}
+              unoptimized={shouldSkipOptimizer(logoLight.url, logoLight.source)}
             />
           ) : null}
           {logoDark?.kind === "image" ? (
@@ -107,7 +108,7 @@ function Logo({ settings }: { settings: SiteSettings }) {
               height={logoDark.height}
               priority
               className={cn("h-8 w-auto", logoLight ? "hidden dark:block" : "")}
-              unoptimized={logoDark.source === "url"}
+              unoptimized={shouldSkipOptimizer(logoDark.url, logoDark.source)}
             />
           ) : null}
         </>

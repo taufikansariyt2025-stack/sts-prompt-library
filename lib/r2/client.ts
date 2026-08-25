@@ -30,7 +30,3 @@ export function r2Bucket(): string {
   return r2Env().R2_BUCKET_NAME;
 }
 
-/** Public CDN URL for an object key. The bucket itself is never public. */
-export function r2PublicUrl(key: string): string {
-  return `${r2Env().R2_PUBLIC_URL.replace(/\/$/, "")}/${key}`;
-}

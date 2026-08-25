@@ -10,11 +10,14 @@ import {
 } from "@/lib/schemas/media";
 
 /**
- * Browser → R2 upload.
+ * Browser → app → R2.
  *
- * Everything expensive happens client-side: downscale, re-encode to WebP, and
- * generate the blur placeholder. The server only signs the URL and verifies the
- * result, so large files never touch a serverless function.
+ * A single multipart POST. The heavy work still happens in the browser —
+ * downscale, re-encode to WebP, build the blur placeholder — so what crosses
+ * the wire is already small.
+ *
+ * The bucket has no public origin and no CORS rules, which is the point: media
+ * is private and read back through a session-checked route.
  */
 
 export type UploadProgress = {
@@ -26,14 +29,12 @@ export type UploadResult =
   | { ok: true; media: Omit<ImageMedia, "alt"> }
   | { ok: false; error: string };
 
-type ApiEnvelope<T> = { ok: boolean; data?: T; error?: string };
-
 export async function uploadImage(
   file: File,
   options: {
     scope?: "prompts" | "categories" | "branding";
     onProgress?: (progress: UploadProgress) => void;
-    /** Branding uploads keep SVG/PNG as-is; previews are always re-encoded. */
+    /** Branding keeps SVG/PNG as-is; previews are always re-encoded. */
     preserveFormat?: boolean;
   } = {},
 ): Promise<UploadResult> {
@@ -48,10 +49,11 @@ export async function uploadImage(
 
     const prepared = preserveFormat ? file : await compress(file);
 
-    if (!ALLOWED_IMAGE_MIME.includes(prepared.type as (typeof ALLOWED_IMAGE_MIME)[number])) {
-      if (!preserveFormat) {
-        return { ok: false, error: "Use a JPG, PNG, WebP or AVIF image." };
-      }
+    if (
+      !preserveFormat &&
+      !ALLOWED_IMAGE_MIME.includes(prepared.type as (typeof ALLOWED_IMAGE_MIME)[number])
+    ) {
+      return { ok: false, error: "Use a JPG, PNG, WebP or AVIF image." };
     }
 
     if (prepared.size > MAX_PREVIEW_BYTES) {
@@ -63,74 +65,38 @@ export async function uploadImage(
       makeBlurPlaceholder(prepared),
     ]);
 
-    onProgress?.({ stage: "preparing", percent: 100 });
-
-    // 1. Ask the server to sign an upload.
-    const signResponse = await fetch("/api/admin/upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mime: prepared.type,
-        bytes: prepared.size,
-        width: dimensions.width,
-        height: dimensions.height,
-        scope,
-      }),
-    });
-
-    const signed = (await signResponse.json()) as ApiEnvelope<{
-      uploadUrl: string;
-      key: string;
-      publicUrl: string;
-    }>;
-
-    if (!signResponse.ok || !signed.ok || !signed.data) {
-      return { ok: false, error: signed.error ?? "Couldn't start the upload." };
-    }
-
-    // 2. PUT straight to R2 with real progress.
     onProgress?.({ stage: "uploading", percent: 0 });
-    await putWithProgress(signed.data.uploadUrl, prepared, (percent) =>
+
+    const form = new FormData();
+    form.append("file", prepared, file.name);
+    form.append("scope", scope);
+    form.append("width", String(dimensions.width));
+    form.append("height", String(dimensions.height));
+    form.append("blurDataURL", blurDataURL);
+    form.append("originalName", file.name.slice(0, 255));
+
+    const payload = await postWithProgress(form, (percent) =>
       onProgress?.({ stage: "uploading", percent }),
     );
 
-    // 3. Register it.
     onProgress?.({ stage: "finalising", percent: 100 });
-    const completeResponse = await fetch("/api/admin/upload-complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        r2Key: signed.data.key,
-        width: dimensions.width,
-        height: dimensions.height,
-        blurDataURL,
-        originalName: file.name.slice(0, 255),
-      }),
-    });
 
-    const completed = (await completeResponse.json()) as ApiEnvelope<{
-      url: string;
-      r2Key: string;
-      bytes: number;
-      mime: string;
-    }>;
-
-    if (!completeResponse.ok || !completed.ok || !completed.data) {
-      return { ok: false, error: completed.error ?? "Couldn't finish the upload." };
+    if (!payload.ok || !payload.data) {
+      return { ok: false, error: payload.error ?? "Upload failed." };
     }
 
     return {
       ok: true,
       media: {
         kind: "image",
-        url: completed.data.url,
-        r2Key: completed.data.r2Key,
+        url: payload.data.url,
+        r2Key: payload.data.r2Key,
         source: "upload",
         width: dimensions.width,
         height: dimensions.height,
         blurDataURL,
-        bytes: completed.data.bytes,
-        mime: completed.data.mime,
+        bytes: payload.data.bytes,
+        mime: payload.data.mime,
       },
     };
   } catch (error) {
@@ -168,7 +134,7 @@ function readDimensions(file: File): Promise<{ width: number; height: number }> 
 }
 
 /**
- * A ~20px-wide JPEG data URI. Tiny enough to inline in the document, which is
+ * A ~20px-wide JPEG data URI. Small enough to inline in the document, which is
  * what removes the grey flash on the masonry grid.
  */
 async function makeBlurPlaceholder(file: File): Promise<string> {
@@ -193,16 +159,20 @@ async function makeBlurPlaceholder(file: File): Promise<string> {
   }
 }
 
-/** fetch() has no upload progress, so this one case uses XHR. */
-function putWithProgress(
-  url: string,
-  file: File,
+type UploadResponse = {
+  ok: boolean;
+  error?: string;
+  data?: { url: string; r2Key: string; bytes: number; mime: string };
+};
+
+/** fetch() still can't report upload progress, so this one call uses XHR. */
+function postWithProgress(
+  form: FormData,
   onProgress: (percent: number) => void,
-): Promise<void> {
+): Promise<UploadResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.open("POST", "/api/admin/upload", true);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -210,14 +180,15 @@ function putWithProgress(
       }
     };
 
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Storage rejected the upload (${xhr.status}).`));
+    xhr.onload = () => {
+      try {
+        resolve(JSON.parse(xhr.responseText) as UploadResponse);
+      } catch {
+        reject(new Error(`Upload failed (${xhr.status}).`));
+      }
+    };
 
-    xhr.onerror = () =>
-      reject(new Error("Network error during upload. Check the bucket's CORS rules."));
-
-    xhr.send(file);
+    xhr.onerror = () => reject(new Error("Network error during upload."));
+    xhr.send(form);
   });
 }

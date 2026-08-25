@@ -1,13 +1,9 @@
 import "server-only";
 
-import { HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { nanoid } from "nanoid";
 
-import { r2, r2Bucket, r2PublicUrl } from "@/lib/r2/client";
-
-/** Presigned URLs are short-lived; an upload should start immediately. */
-const PRESIGN_TTL_SECONDS = 300;
+import { r2, r2Bucket } from "@/lib/r2/client";
 
 const EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -20,8 +16,8 @@ const EXTENSION: Record<string, string> = {
 /**
  * Builds an object key.
  *
- * The key is NEVER derived from the uploaded filename. A random nanoid removes
- * path traversal, collisions and content-sniffing tricks in one move, and makes
+ * NEVER derived from the uploaded filename. A random nanoid removes path
+ * traversal, collisions and content-sniffing tricks in one move, and makes
  * every object immutable so it can be cached forever.
  */
 export function buildObjectKey(scope: string, mime: string): string {
@@ -33,34 +29,18 @@ export function buildObjectKey(scope: string, mime: string): string {
 }
 
 /**
- * Signs a PUT that only accepts the exact content type and length the client
- * declared. A signature for a 200 KB WebP cannot be replayed to upload a 2 GB
- * archive.
+ * App-relative URL for a stored object.
+ *
+ * Relative, not absolute, and deliberately so: the bucket is private and has no
+ * public origin, so media is served by /api/media behind a session check. It
+ * also means no CDN hostname to configure and nothing to change if the site
+ * moves domain.
  */
-export async function presignUpload(params: {
-  key: string;
-  mime: string;
-  bytes: number;
-}): Promise<string> {
-  const command = new PutObjectCommand({
-    Bucket: r2Bucket(),
-    Key: params.key,
-    ContentType: params.mime,
-    ContentLength: params.bytes,
-    CacheControl: "public, max-age=31536000, immutable",
-  });
-
-  return getSignedUrl(r2(), command, {
-    expiresIn: PRESIGN_TTL_SECONDS,
-    signableHeaders: new Set(["content-type", "content-length"]),
-  });
+export function mediaUrlForKey(key: string): string {
+  return `/api/media/${key}`;
 }
 
-/**
- * Confirms the object really landed, and that what landed matches what was
- * promised. Without this the client could call upload-complete without ever
- * uploading, leaving a database row pointing at nothing.
- */
+/** Confirms an object really landed and matches what was promised. */
 export async function verifyUploaded(
   key: string,
   expected: { mime?: string; maxBytes: number },
@@ -86,5 +66,3 @@ export async function verifyUploaded(
     return { ok: false, reason: "Upload not found in storage." };
   }
 }
-
-export { r2PublicUrl };

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { listPrompts } from "@/lib/firebase/queries";
 import type { Prompt } from "@/lib/schemas/prompt";
+import { shouldSkipOptimizer } from "@/lib/utils/media";
 
 export const metadata: Metadata = { title: "Prompts" };
 export const dynamic = "force-dynamic";
@@ -125,7 +126,9 @@ function Thumbnail({ prompt }: { prompt: Prompt }) {
         fill
         sizes="48px"
         className="object-cover"
-        unoptimized={preview.kind === "image" && preview.source === "url"}
+        unoptimized={
+          preview.kind === "image" ? shouldSkipOptimizer(preview.url, preview.source) : false
+        }
       />
       {preview.kind === "youtube" ? (
         <span className="absolute inset-0 grid place-items-center bg-black/30">

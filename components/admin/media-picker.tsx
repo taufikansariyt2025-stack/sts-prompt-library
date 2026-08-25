@@ -11,6 +11,7 @@ import { FieldHint, Input, Label } from "@/components/ui/input";
 import type { PreviewMedia, YouTubeMedia } from "@/lib/schemas/media";
 import { uploadImage, type UploadProgress } from "@/lib/upload/client-upload";
 import { cn } from "@/lib/utils/cn";
+import { shouldSkipOptimizer } from "@/lib/utils/media";
 
 type Source = "upload" | "url" | "youtube";
 
@@ -418,7 +419,7 @@ function ImagePreview({
           className="object-cover"
           placeholder={media.blurDataURL ? "blur" : "empty"}
           blurDataURL={media.blurDataURL || undefined}
-          unoptimized={media.source === "url"}
+          unoptimized={shouldSkipOptimizer(media.url, media.source)}
         />
       </div>
 

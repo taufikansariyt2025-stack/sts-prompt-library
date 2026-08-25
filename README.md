@@ -42,25 +42,18 @@ Deploy the rules and indexes:
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-### 3. Cloudflare R2
+### 3. Cloudflare R2 (optional — only for image uploads)
 
 1. Create a bucket (e.g. `sts-prompt-library-media`).
-2. **Do not** enable the public `r2.dev` URL. Bind a **custom domain** instead — that is what puts media behind Cloudflare's CDN with zero egress.
-3. Create an API token with Object Read & Write.
-4. Add a CORS rule allowing `PUT` from your origin:
+2. **Leave public access OFF.** No `r2.dev` URL, no custom domain, no CORS rules.
+3. **R2 → Manage API tokens** → create a token with Object Read & Write.
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://your-domain.com", "http://localhost:3000"],
-    "AllowedMethods": ["PUT", "GET"],
-    "AllowedHeaders": ["content-type"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
+That's the whole setup. Media is stored privately and served through
+`GET /api/media/<key>`, which requires a session — so previews are gated exactly
+like the pages that embed them, and there is no public URL to leak.
 
-> Uploads failing silently in the browser is almost always a missing CORS rule.
+You can skip this entirely and use YouTube links for previews; uploads then
+report "storage isn't configured" instead of failing.
 
 ### 4. Environment
 

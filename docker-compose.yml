@@ -9,8 +9,9 @@
 # Fix: attach to the external `dokploy-network` AND emit the labels ourselves.
 #
 # SET EVERYTHING IN  Dokploy → Environment.  Nothing is hardcoded below.
-# Required: DOMAIN, the eight NEXT_PUBLIC_* values, FIREBASE_SERVICE_ACCOUNT_KEY,
-# ADMIN_EMAILS, and the R2_* block. See .env.example for what each one is.
+# Required: DOMAIN, the NEXT_PUBLIC_FIREBASE_* values, FIREBASE_SERVICE_ACCOUNT_KEY
+# and ADMIN_EMAILS. The R2_* block is only needed for image uploads.
+# See .env.example for what each one is.
 #
 # ⚠ NEXT_PUBLIC_* ARE BUILD-TIME. They are baked into the browser bundle during
 #   `docker build`, which is why they appear under BOTH `build.args` and
@@ -24,7 +25,6 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
-        NEXT_PUBLIC_CDN_URL: ${NEXT_PUBLIC_CDN_URL}
         NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
         NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
         NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
@@ -50,7 +50,6 @@ services:
 
       # ── Public config (also read by server components at runtime) ──────────
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
-      NEXT_PUBLIC_CDN_URL: ${NEXT_PUBLIC_CDN_URL}
       NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
@@ -71,7 +70,7 @@ services:
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_BUCKET_NAME: ${R2_BUCKET_NAME:-sts-prompt-library-media}
-      R2_PUBLIC_URL: ${R2_PUBLIC_URL}
+      # No public bucket URL: media is served privately via /api/media.
 
       # Optional — falls back to an in-memory limiter, which is per-container
       # and therefore NOT sufficient if you ever run more than one replica.
