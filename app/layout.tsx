@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { SITE } from "@/lib/constants/site";
+import { siteUrl } from "@/lib/env";
 
 import "./globals.css";
 
@@ -21,10 +22,10 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(siteUrl()),
   title: {
     default: `${SITE.name} — ${SITE.tagline}`,
     template: `%s · ${SITE.name}`,
@@ -42,7 +43,7 @@ export const metadata: Metadata = {
     siteName: SITE.name,
     title: `${SITE.name} — ${SITE.tagline}`,
     description: SITE.description,
-    url: siteUrl,
+    url: siteUrl(),
   },
   twitter: {
     card: "summary_large_image",

@@ -13,9 +13,17 @@ import { z } from "zod";
  * only be able to break itself.
  */
 
+/*
+ * Only what the app genuinely cannot start without.
+ *
+ * NEXT_PUBLIC_SITE_URL and NEXT_PUBLIC_CDN_URL are deliberately NOT here.
+ * Nothing reads them through `clientEnv` — every consumer reads process.env
+ * directly and already carries a fallback — so requiring them only ever
+ * produced a build failure. Worse, it surfaced during "collect page data" and
+ * blamed whichever route happened to be compiled first, which sent you looking
+ * at an API handler that had nothing to do with it.
+ */
 const clientSchema = z.object({
-  NEXT_PUBLIC_SITE_URL: z.url(),
-  NEXT_PUBLIC_CDN_URL: z.url(),
   NEXT_PUBLIC_FIREBASE_API_KEY: z.string().min(1),
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: z.string().min(1),
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: z.string().min(1),
@@ -25,17 +33,31 @@ const clientSchema = z.object({
 });
 
 function format(error: z.ZodError, scope: string): never {
+  const names = error.issues.map((i) => String(i.path[0]));
   const lines = error.issues.map((i) => `  · ${i.path.join(".")}: ${i.message}`);
+
+  const isPublic = names.some((n) => n.startsWith("NEXT_PUBLIC_"));
+
   throw new Error(
-    `Invalid ${scope} environment variables:\n${lines.join("\n")}\n\n` +
-      `Copy .env.example to .env.local and fill in the missing values.`,
+    [
+      `Invalid ${scope} environment variables:`,
+      ...lines,
+      "",
+      "Local dev:  copy .env.example to .env.local and fill these in.",
+      ...(isPublic
+        ? [
+            "",
+            "Docker/Dokploy: NEXT_PUBLIC_* are inlined at BUILD time, so they must be",
+            "passed as BUILD ARGS — setting them only as runtime env has no effect.",
+            "See the `args:` block in docker-compose.yml.",
+          ]
+        : []),
+    ].join("\n"),
   );
 }
 
 // Referenced explicitly (not via a loop) so Next.js can inline them at build time.
 const rawClient = {
-  NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
-  NEXT_PUBLIC_CDN_URL: process.env.NEXT_PUBLIC_CDN_URL,
   NEXT_PUBLIC_FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -49,6 +71,27 @@ const parsedClient = clientSchema.safeParse(rawClient);
 if (!parsedClient.success) format(parsedClient.error, "client");
 
 export const clientEnv = parsedClient.data;
+
+/** Canonical site origin. Falls back to localhost for dev and previews. */
+export function siteUrl(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+}
+
+/**
+ * Public CDN origin for R2 media, or "" when storage isn't configured.
+ *
+ * Optional on purpose: the app runs fine without R2 — YouTube previews need no
+ * CDN at all — so a missing value must not stop the build.
+ */
+export function cdnUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_CDN_URL?.trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return "";
+  }
+}
 
 function assertServer(): void {
   if (typeof window !== "undefined") {

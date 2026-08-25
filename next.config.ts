@@ -1,11 +1,19 @@
 import bundleAnalyzer from "@next/bundle-analyzer";
 import type { NextConfig } from "next";
 
-const cdnHost = (() => {
+/**
+ * The R2 CDN host, or null when storage isn't configured.
+ *
+ * Returning null rather than a placeholder matters: registering a made-up host
+ * in remotePatterns would silently allow images from a domain we don't own.
+ */
+const cdnHost: string | null = (() => {
+  const raw = process.env.NEXT_PUBLIC_CDN_URL?.trim();
+  if (!raw) return null;
   try {
-    return new URL(process.env.NEXT_PUBLIC_CDN_URL ?? "https://cdn.example.com").hostname;
+    return new URL(raw).hostname;
   } catch {
-    return "cdn.example.com";
+    return null;
   }
 })();
 
@@ -62,9 +70,11 @@ const nextConfig: NextConfig = {
   images: {
     // `domains` is deprecated in Next 16; remotePatterns is the supported form.
     remotePatterns: [
-      { protocol: "https", hostname: cdnHost },
-      { protocol: "https", hostname: "i.ytimg.com" },
-      { protocol: "https", hostname: "img.youtube.com" },
+      ...(cdnHost ? [{ protocol: "https" as const, hostname: cdnHost }] : []),
+      { protocol: "https" as const, hostname: "i.ytimg.com" },
+      { protocol: "https" as const, hostname: "img.youtube.com" },
+      // Google account avatars shown in the admin access queue.
+      { protocol: "https" as const, hostname: "lh3.googleusercontent.com" },
     ],
     formats: ["image/avif", "image/webp"],
     // Media is immutable (content-hashed keys), so cache hard.
