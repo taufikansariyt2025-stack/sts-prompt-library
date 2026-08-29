@@ -33,6 +33,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/user
       role: parsed.data.role,
       note: parsed.data.note,
       actorEmail: guard.session.email,
+      actorRole: guard.session.role,
     });
 
     await audit(guard.session, "access.decide", uid, {
@@ -43,7 +44,11 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/user
 
     return ok(user);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Owner accounts")) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("Owner accounts") ||
+        error.message.includes("Only an owner"))
+    ) {
       return forbidden(error.message);
     }
     return serverError("admin/users PATCH", error);

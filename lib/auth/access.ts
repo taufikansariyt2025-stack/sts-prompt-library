@@ -6,8 +6,10 @@ import type { DecodedIdToken } from "firebase-admin/auth";
 import { adminEmails } from "@/lib/env";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import {
+  canActOnUser,
   canAccessPanel,
   DEFAULT_APPROVED_ROLE,
+  grantableRoles,
   type AccessStatus,
   type AppUser,
   type UserRole,
@@ -178,8 +180,9 @@ export async function decideAccess(params: {
   role?: UserRole;
   note?: string;
   actorEmail: string;
+  actorRole: UserRole;
 }): Promise<AppUser> {
-  const { uid, status, note, actorEmail } = params;
+  const { uid, status, note, actorEmail, actorRole } = params;
   const ref = adminDb().collection(USERS).doc(uid);
 
   const snapshot = await ref.get();
@@ -187,13 +190,21 @@ export async function decideAccess(params: {
 
   const current = toAppUser(uid, snapshot.data()!);
 
-  // An owner is the root of trust; the UI must not be able to strip that.
-  if (current.role === "owner") {
-    throw new Error("Owner accounts can't be modified here.");
+  // An owner is the root of trust, and an admin may not act on another admin.
+  if (!canActOnUser(actorRole, current.role)) {
+    throw new Error(
+      current.role === "owner"
+        ? "Owner accounts can't be modified here."
+        : "Only an owner can change another admin's access.",
+    );
   }
 
-  // `current.role` is already narrowed to a non-owner by the guard above.
   const role: UserRole = params.role ?? current.role;
+
+  // Escalation guard: an admin cannot mint another admin.
+  if (params.role && !grantableRoles(actorRole).includes(params.role)) {
+    throw new Error(`Only an owner can grant the "${params.role}" role.`);
+  }
   const approved = status === "approved";
 
   await ref.update({

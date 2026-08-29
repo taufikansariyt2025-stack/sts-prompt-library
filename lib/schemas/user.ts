@@ -68,9 +68,36 @@ export function canAccessPanel(role: UserRole): boolean {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
-/** Can approve access requests and change roles. */
+/** Can open the access queue and decide on requests. */
 export function canManageUsers(role: UserRole): boolean {
-  return role === "owner";
+  return role === "owner" || role === "admin";
+}
+
+/**
+ * Which roles a given actor may hand out.
+ *
+ * Only an owner can create another admin. Without that limit, any admin could
+ * promote an account to admin and the role would stop meaning anything —
+ * one compromised admin would be enough to mint more.
+ */
+export function grantableRoles(actor: UserRole): UserRole[] {
+  if (actor === "owner") return ["member", "editor", "admin"];
+  if (actor === "admin") return ["member", "editor"];
+  return [];
+}
+
+/**
+ * Whether `actor` may act on `target` at all.
+ *
+ * An owner is the root of trust and is never modifiable here. An admin may
+ * only act on members and editors — not on other admins, which stops admins
+ * suspending each other or escalating sideways.
+ */
+export function canActOnUser(actor: UserRole, target: UserRole): boolean {
+  if (target === "owner") return false;
+  if (actor === "owner") return true;
+  if (actor === "admin") return target === "member" || target === "editor";
+  return false;
 }
 
 /** Can edit site-wide settings and branding. */

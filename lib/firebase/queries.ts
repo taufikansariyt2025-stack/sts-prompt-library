@@ -198,6 +198,104 @@ async function getCategoryBySlugUncached(slug: string): Promise<Category | null>
   return doc ? toCategory(doc.id, doc.data()) : null;
 }
 
+// ── Admin-only reads ─────────────────────────────────────────────────────────
+// Uncached: the admin panel is dynamic and must never show stale state right
+// after an edit.
+
+export async function listCategoriesForAdmin(): Promise<Category[]> {
+  const snapshot = await adminDb()
+    .collection(COLLECTIONS.categories)
+    .orderBy("order", "asc")
+    .get();
+  return snapshot.docs.map((doc) => toCategory(doc.id, doc.data()));
+}
+
+export async function getCategoryById(id: string): Promise<Category | null> {
+  const doc = await adminDb().collection(COLLECTIONS.categories).doc(id).get();
+  return doc.exists ? toCategory(doc.id, doc.data()!) : null;
+}
+
+export async function countPromptsInCategory(categoryId: string): Promise<number> {
+  const snapshot = await adminDb()
+    .collection(COLLECTIONS.prompts)
+    .where("categoryId", "==", categoryId)
+    .count()
+    .get();
+  return snapshot.data().count;
+}
+
+export type MediaAssetRow = {
+  id: string;
+  r2Key: string;
+  url: string;
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+  originalName: string;
+  uploadedAt: string | null;
+};
+
+function toMediaAsset(id: string, data: FirebaseFirestore.DocumentData): MediaAssetRow {
+  return {
+    id,
+    r2Key: (data.r2Key as string) ?? "",
+    url: (data.url as string) ?? "",
+    mime: (data.mime as string) ?? "",
+    bytes: (data.bytes as number) ?? 0,
+    width: (data.width as number) ?? 0,
+    height: (data.height as number) ?? 0,
+    originalName: (data.originalName as string) ?? "",
+    uploadedAt: toIso(data.uploadedAt),
+  };
+}
+
+export async function listMediaAssets(): Promise<MediaAssetRow[]> {
+  const snapshot = await adminDb().collection(COLLECTIONS.media).get();
+  return snapshot.docs
+    .map((doc) => toMediaAsset(doc.id, doc.data()))
+    .sort((a, b) => (b.uploadedAt ?? "").localeCompare(a.uploadedAt ?? ""));
+}
+
+export async function getMediaAsset(id: string): Promise<MediaAssetRow | null> {
+  const doc = await adminDb().collection(COLLECTIONS.media).doc(id).get();
+  return doc.exists ? toMediaAsset(doc.id, doc.data()!) : null;
+}
+
+/** How many prompts point at this image, so deletion can't orphan one. */
+export async function countPromptsUsingMedia(url: string): Promise<number> {
+  const snapshot = await adminDb()
+    .collection(COLLECTIONS.prompts)
+    .where("preview.url", "==", url)
+    .count()
+    .get();
+  return snapshot.data().count;
+}
+
+export type TagRow = { slug: string; count: number };
+
+/**
+ * Tags aggregated from the prompts that carry them.
+ *
+ * There is no tags collection: a tag only exists because a prompt uses it, so
+ * deriving the list keeps it honest — a tag can never linger after its last
+ * prompt drops it.
+ */
+export async function listTagsWithCounts(): Promise<TagRow[]> {
+  const snapshot = await adminDb().collection(COLLECTIONS.prompts).select("tags").get();
+
+  const counts = new Map<string, number>();
+  for (const doc of snapshot.docs) {
+    for (const tag of (doc.get("tags") as string[] | undefined) ?? []) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .map(([slug, count]) => ({ slug, count }))
+    .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug));
+}
+
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 async function getSiteSettingsUncached(): Promise<SiteSettings> {

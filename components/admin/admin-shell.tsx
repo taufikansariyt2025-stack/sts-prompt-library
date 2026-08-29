@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   SquareStack,
   Tags,
-  Upload,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -30,8 +29,8 @@ type NavItem = {
   Icon: typeof LayoutDashboard;
   /** Dashboard would otherwise match every nested admin route. */
   exact?: boolean;
-  /** Owner-only entries are hidden from admins and editors. */
-  ownerOnly?: boolean;
+  /** Hidden from roles that can't manage access (editors). */
+  managesUsers?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -40,8 +39,7 @@ const NAV: NavItem[] = [
   { href: "/admin/categories", label: "Categories", Icon: FolderTree },
   { href: "/admin/tags", label: "Tags", Icon: Tags },
   { href: "/admin/media", label: "Media", Icon: ImageIcon },
-  { href: "/admin/import", label: "Import", Icon: Upload },
-  { href: "/admin/users", label: "Access", Icon: ShieldCheck, ownerOnly: true },
+  { href: "/admin/users", label: "Access", Icon: ShieldCheck, managesUsers: true },
   { href: "/admin/settings", label: "Settings", Icon: Settings },
 ];
 
@@ -109,7 +107,7 @@ export function AdminShell({
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
           {NAV.filter(
-            (item) => !item.ownerOnly || canManageUsers(session.role),
+            (item) => !item.managesUsers || canManageUsers(session.role),
           ).map(({ href, label, Icon, exact }) => {
             const active = isActive(href, exact);
             const badge = href === "/admin/users" ? pendingRequests : 0;

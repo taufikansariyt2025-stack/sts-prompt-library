@@ -57,7 +57,8 @@ type AuditAction =
   | "category.delete"
   | "settings.update"
   | "media.delete"
-  | "access.decide";
+  | "access.decide"
+  | "tag.rename";
 
 export async function audit(
   session: AdminSession,
@@ -268,6 +269,58 @@ export async function recountCategory(categoryId: string): Promise<void> {
   } catch (error) {
     console.error("[recountCategory] failed", categoryId, error);
   }
+}
+
+export async function deleteCategory(
+  session: AdminSession,
+  id: string,
+  slug: string,
+): Promise<void> {
+  await adminDb().collection(COLLECTIONS.categories).doc(id).delete();
+  await audit(session, "category.delete", id, { slug });
+  invalidate([TAGS.categories, TAGS.category(slug), TAGS.prompts]);
+}
+
+/**
+ * Renames a tag on every prompt that carries it. An empty `to` removes it.
+ *
+ * Tags live on the prompt documents, so this rewrites each one. Renaming onto
+ * an existing tag merges them, and the Set keeps that from producing a
+ * duplicate on prompts that already had both.
+ */
+export async function renameTagAcrossPrompts(
+  session: AdminSession,
+  from: string,
+  to: string,
+): Promise<number> {
+  const snapshot = await adminDb()
+    .collection(COLLECTIONS.prompts)
+    .where("tags", "array-contains", from)
+    .get();
+
+  let batch = adminDb().batch();
+  let queued = 0;
+
+  for (const doc of snapshot.docs) {
+    const current = ((doc.get("tags") as string[] | undefined) ?? []).filter(
+      (t) => t !== from,
+    );
+    const next = to ? [...new Set([...current, to])] : current;
+
+    batch.update(doc.ref, { tags: next, updatedAt: FieldValue.serverTimestamp() });
+
+    if (++queued % 400 === 0) {
+      await batch.commit();
+      batch = adminDb().batch();
+    }
+  }
+
+  if (queued % 400 !== 0) await batch.commit();
+
+  await audit(session, "tag.rename", from, { to: to || "(removed)", prompts: queued });
+  invalidate([TAGS.prompts, TAGS.searchIndex]);
+
+  return queued;
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────

@@ -1,6 +1,10 @@
 import "server-only";
 
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 import { r2, r2Bucket } from "@/lib/r2/client";
 import { OBJECT_KEY } from "@/lib/schemas/media";
@@ -57,4 +61,8 @@ export async function putObject(params: {
       CacheControl: "public, max-age=31536000, immutable",
     }),
   );
+}
+
+export async function deleteObject(key: string): Promise<void> {
+  await r2().send(new DeleteObjectCommand({ Bucket: r2Bucket(), Key: key }));
 }

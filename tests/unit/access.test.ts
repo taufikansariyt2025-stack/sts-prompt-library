@@ -5,8 +5,10 @@ import {
   accessDecisionSchema,
   canAccessPanel,
   canEditSettings,
+  canActOnUser,
   canManageUsers,
   canViewLibrary,
+  grantableRoles,
   DEFAULT_APPROVED_ROLE,
   USER_ROLES,
   type UserRole,
@@ -19,16 +21,60 @@ import {
  * granting themselves owner rights, or approving further accounts.
  */
 
-describe("canManageUsers", () => {
-  it("allows only the owner to review access requests", () => {
-    expect(canManageUsers("owner")).toBe(true);
-    expect(canManageUsers("admin")).toBe(false);
-    expect(canManageUsers("editor")).toBe(false);
+describe("grantableRoles", () => {
+  it("lets an owner grant any non-owner role", () => {
+    expect(grantableRoles("owner")).toEqual(["member", "editor", "admin"]);
   });
 
-  it("denies every non-owner role, including any added later", () => {
-    const allowed = USER_ROLES.filter((role) => canManageUsers(role));
-    expect(allowed).toEqual(["owner"]);
+  it("stops an admin minting another admin", () => {
+    expect(grantableRoles("admin")).not.toContain("admin");
+    expect(grantableRoles("admin")).toEqual(["member", "editor"]);
+  });
+
+  it("never lets anyone grant owner — that comes from ADMIN_EMAILS alone", () => {
+    for (const role of USER_ROLES) expect(grantableRoles(role)).not.toContain("owner");
+  });
+
+  it("gives editors and members nothing to grant", () => {
+    expect(grantableRoles("editor")).toEqual([]);
+    expect(grantableRoles("member")).toEqual([]);
+  });
+});
+
+describe("canActOnUser", () => {
+  it("never allows acting on an owner, not even by an owner", () => {
+    for (const actor of USER_ROLES) expect(canActOnUser(actor, "owner")).toBe(false);
+  });
+
+  it("lets an owner act on every other role", () => {
+    expect(canActOnUser("owner", "admin")).toBe(true);
+    expect(canActOnUser("owner", "editor")).toBe(true);
+    expect(canActOnUser("owner", "member")).toBe(true);
+  });
+
+  it("stops an admin acting on another admin — no sideways escalation", () => {
+    expect(canActOnUser("admin", "admin")).toBe(false);
+    expect(canActOnUser("admin", "editor")).toBe(true);
+    expect(canActOnUser("admin", "member")).toBe(true);
+  });
+
+  it("gives editors and members no authority at all", () => {
+    for (const target of USER_ROLES) {
+      expect(canActOnUser("editor", target)).toBe(false);
+      expect(canActOnUser("member", target)).toBe(false);
+    }
+  });
+});
+
+describe("canManageUsers", () => {
+  it("lets owners and admins review access requests", () => {
+    expect(canManageUsers("owner")).toBe(true);
+    expect(canManageUsers("admin")).toBe(true);
+  });
+
+  it("keeps editors and members out of the queue", () => {
+    expect(canManageUsers("editor")).toBe(false);
+    expect(canManageUsers("member")).toBe(false);
   });
 });
 
